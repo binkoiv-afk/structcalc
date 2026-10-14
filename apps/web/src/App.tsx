@@ -7,6 +7,7 @@ import { Lang, LANGS, makeT } from "./i18n";
 import { Scheme } from "./Scheme";
 import { CheckList, Diagrams, pct, SectionProps, Summary, utilState } from "./Results";
 import { Report } from "./Report";
+import { CollectorState, initialCollector, LoadCollector } from "./LoadCollector";
 
 type Mode = "check" | "select";
 type Tab = "results" | "report";
@@ -16,7 +17,7 @@ interface State {
   selfWeight: boolean; gammaG: number; gammaQ: number; gammaC: number; gammaN: number; restraints: 0 | 1 | 2;
   restrained: boolean; loadAt: "top" | "center" | "bottom"; LcrLT: string; deflLimit: number;
   mode: Mode; family: string; size: string; useAxial: boolean; NEd: number; Lcr_y: number; Lcr_z: number;
-  obj: string; elem: string;
+  obj: string; elem: string; lc: CollectorState;
 }
 
 const initial: State = {
@@ -24,7 +25,7 @@ const initial: State = {
   loads: [{ type: "udl", cat: "G", q: 3 }, { type: "udl", cat: "Q", q: 5 }],
   selfWeight: true, ...DEFAULT_FACTORS.DBN, gammaC: 1.0, gammaN: 1.0, restraints: 0, restrained: false, loadAt: "top", LcrLT: "",
   deflLimit: 0, mode: "select", family: "IPE", size: "IPE 270", useAxial: false, NEd: 0, Lcr_y: 6, Lcr_z: 6,
-  obj: "", elem: "",
+  obj: "", elem: "", lc: initialCollector,
 };
 
 const num = (v: string) => (v.trim() === "" ? 0 : Number(v.replace(",", ".")));
@@ -32,7 +33,7 @@ const num = (v: string) => (v.trim() === "" ? 0 : Number(v.replace(",", ".")));
 function loadState(): State {
   try {
     const raw = localStorage.getItem("structcalc.beam");
-    if (raw) return { ...initial, ...JSON.parse(raw) };
+    if (raw) { const o = JSON.parse(raw); return { ...initial, ...o, lc: { ...initialCollector, ...(o.lc ?? {}) } }; }
   } catch { /* хранилище недоступно */ }
   return initial;
 }
@@ -140,6 +141,7 @@ export function App() {
                     <select id={`lc${i}`} value={l.cat} onChange={(e) => updateLoad(i, { cat: e.target.value as "G" | "Q" })}>
                       <option value="G">{t("cat_G")}</option><option value="Q">{t("cat_Q")}</option>
                     </select>
+                    {l.label && <span className="load-tag" title={l.note}>{l.label}{l.gf != null ? ` · γf ${l.gf.toFixed(2)}` : ""}</span>}
                     <button className="icon" aria-label="×" onClick={() => set({ loads: s.loads.filter((_, k) => k !== i) })}>×</button>
                   </div>
                   <div className="load-row">
@@ -162,6 +164,8 @@ export function App() {
             <button className="ghost" onClick={() => set({ loads: [...s.loads, { type: "udl", cat: "Q", q: 1 }] })}>{t("addLoad")}</button>
             <label className="check"><input id="sw" type="checkbox" checked={s.selfWeight} onChange={(e) => set({ selfWeight: e.target.checked })} /> {t("selfWeight")}</label>
           </fieldset>
+
+          <LoadCollector code={s.code} c={s.lc} t={t} set={(p) => set({ lc: { ...s.lc, ...p } })} onAdd={(l) => set({ loads: [...s.loads, l] })} />
 
           <fieldset>
             <legend>{t("section")}</legend>

@@ -11,10 +11,23 @@ import type { CodeId, MemberResult } from "../codes/types";
 
 export type LoadCategory = "G" | "Q";
 
+/** Общие поля нагрузки: свой коэффициент надежности (напр. γfm снега) и экспл. коэффициент γfe. */
+export interface LoadMeta {
+  cat: LoadCategory;
+  /** название (напр. «Сніг»), отображается в схеме и отчете */
+  label?: string;
+  /** коэффициент для предельного (ULS) значения; по умолчанию γG / γQ */
+  gf?: number;
+  /** коэффициент для эксплуатационного (SLS) значения; по умолчанию 1 */
+  gfe?: number;
+  /** вывод значения (сбор нагрузок) для отчета */
+  note?: string;
+}
+
 export type UserLoad =
-  | { type: "udl"; cat: LoadCategory; q: number; from?: number; to?: number } // кН/м, м
-  | { type: "point"; cat: LoadCategory; P: number; x: number } // кН, м
-  | { type: "moment"; cat: LoadCategory; M: number; x: number }; // кН·м, м
+  | (LoadMeta & { type: "udl"; q: number; from?: number; to?: number }) // кН/м, м
+  | (LoadMeta & { type: "point"; P: number; x: number }) // кН, м
+  | (LoadMeta & { type: "moment"; M: number; x: number }); // кН·м, м
 
 export interface BeamDesignInput {
   code: CodeId;
@@ -57,6 +70,8 @@ export interface BeamDesignResult {
   C1: number;
   C2: number;
   LcrLT: number;
+  /** расчетным оказалось сочетание с отрывом (временные нагрузки вверх) */
+  uplift: boolean;
 }
 
 function toCore(l: UserLoad, factor: number): BeamLoad {
@@ -86,9 +101,26 @@ export function designBeam(inp: BeamDesignInput, section: Section): BeamDesignRe
   const spans = inp.spans.map((s) => s * 1000);
   const sw: UserLoad[] = inp.selfWeight ? [{ type: "udl", cat: "G", q: (section.mass * 9.81) / 1000 }] : [];
   const all = [...inp.loads, ...sw];
-  const fac = (l: UserLoad) => (l.cat === "G" ? inp.gammaG : inp.gammaQ);
-  const uls = analyzeBeam({ spans, supports: inp.supports, EI, loads: all.map((l) => toCore(l, fac(l))) });
-  const sls = analyzeBeam({ spans, supports: inp.supports, EI, loads: all.map((l) => toCore(l, 1)) });
+  const fac = (l: UserLoad) => l.gf ?? (l.cat === "G" ? inp.gammaG : inp.gammaQ);
+  // Временные нагрузки разного знака (напр. снег и отсос ветра) не складываются:
+  // сочетание 1 — G + Q, направленные вниз; сочетание 2 — G с γf для благоприятного действия + Q вверх.
+  const sign = (l: UserLoad) => (l.type === "udl" ? l.q : l.type === "point" ? l.P : 1);
+  const qDown = all.filter((l) => l.cat === "G" || sign(l) >= 0);
+  const qUp = all.filter((l) => l.cat === "Q" && sign(l) < 0);
+  const gFav = inp.code === "DBN" ? 0.9 : 1.0;
+  const run = (ls: UserLoad[], f: (l: UserLoad) => number) =>
+    analyzeBeam({ spans, supports: inp.supports, EI, loads: ls.map((l) => toCore(l, f(l))) });
+  const mAbs = (b: BeamResult) => Math.max(Math.abs(b.Mmax), Math.abs(b.Mmin));
+  const wAbs = (b: BeamResult) => Math.max(...b.spanDeflections.map((d) => Math.abs(d.w) / d.Lref));
+  let uls = run(qDown, fac), sls = run(qDown, (l) => l.gfe ?? 1);
+  let uplift = false;
+  if (qUp.length) {
+    const G = all.filter((l) => l.cat === "G");
+    const ulsUp = run([...G, ...qUp], (l) => (l.cat === "G" ? gFav : fac(l)));
+    const slsUp = run([...G, ...qUp], (l) => l.gfe ?? 1);
+    if (mAbs(ulsUp) > mAbs(uls)) { uls = ulsUp; uplift = true; }
+    if (wAbs(slsUp) > wAbs(sls)) sls = slsUp;
+  }
 
   // Участок для изгибно-крутильной проверки — пролет с наибольшим |M|
   const bounds = [0];
@@ -107,12 +139,14 @@ export function designBeam(inp: BeamDesignInput, section: Section): BeamDesignRe
   const C1 = isCant ? 1 : c1FromDiagram(uls.x, uls.M, bounds[crit], bounds[crit + 1]);
   const hasUdl = all.some((l) => l.type === "udl");
   const C2 = hasUdl ? 0.454 : 0.63;
+  // При отрыве (сочетание 2) сжат нижний пояс, а нагрузка приложена к растянутому
+  const loadAt = uplift ? (inp.ltb.loadAt === "top" ? "bottom" : inp.ltb.loadAt === "bottom" ? "top" : "center") : inp.ltb.loadAt;
   const psiCase: PsiCase = {
     cantilever: isCant,
     load: hasUdl ? "uniform" : "point",
     flange: isCant
-      ? (inp.ltb.loadAt === "bottom" ? "compressed" : "tension")
-      : (inp.ltb.loadAt === "bottom" ? "tension" : "compressed"),
+      ? (loadAt === "bottom" ? "compressed" : "tension")
+      : (loadAt === "bottom" ? "tension" : "compressed"),
     restraints: isCant ? 0 : nRes,
   };
 
@@ -124,12 +158,12 @@ export function designBeam(inp: BeamDesignInput, section: Section): BeamDesignRe
   const memberInput = {
     code: inp.code, section, steel: inp.steel, gammaC: inp.gammaC, gammaN: inp.gammaN,
     MEd, VEd: uls.Vabs, NEd: inp.axial ? inp.axial.NEd * 1000 : 0,
-    ltb: { restrained: inp.ltb.restrained, Lcr: LcrLT, C1, C2, loadAt: inp.ltb.loadAt, dbn: psiCase },
+    ltb: { restrained: inp.ltb.restrained, Lcr: LcrLT, C1, C2, loadAt, dbn: psiCase },
     buckling: inp.axial ? { Lcr_y: inp.axial.Lcr_y * 1000, Lcr_z: inp.axial.Lcr_z * 1000 } : undefined,
     deflection: { w: worst.w, Lref: worst.Lref, limit: limitFor(worst.Lref) },
   };
   const member = inp.code === "EN" ? checkMemberEN(memberInput) : checkMemberDBN(memberInput);
-  return { section, uls, sls, member, C1, C2, LcrLT };
+  return { section, uls, sls, member, C1, C2, LcrLT, uplift };
 }
 
 export interface SelectionResult {

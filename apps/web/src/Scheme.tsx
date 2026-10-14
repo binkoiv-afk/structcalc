@@ -24,8 +24,8 @@ export function Scheme({ spans, supports, loads, t }: { spans: number[]; support
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="scheme" role="img" aria-label={t("scheme")}>
       <defs>
-        <marker id="arr" viewBox="0 0 10 10" refX="5" refY="9" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M0,0 L5,10 L10,0 z" className="s-load-fill" />
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" className="s-load-fill" />
         </marker>
       </defs>
 
@@ -38,10 +38,12 @@ export function Scheme({ spans, supports, loads, t }: { spans: number[]; support
             <rect x={a} y={top} width={b - a} height={bandH[i]} className="s-udl" />
             {Array.from({ length: n + 1 }, (_, k) => {
               const x = a + ((b - a) * k) / n;
-              return <line key={k} x1={x} y1={top} x2={x} y2={top + bandH[i] - 2} markerEnd="url(#arr)" />;
+              return l.q < 0
+                ? <line key={k} x1={x} y1={top + bandH[i]} x2={x} y2={top + 2} markerEnd="url(#arr)" />
+                : <line key={k} x1={x} y1={top} x2={x} y2={top + bandH[i] - 2} markerEnd="url(#arr)" />;
             })}
             <text x={(a + b) / 2} y={top - 5} textAnchor="middle" className="s-text">
-              {l.cat === "G" ? "g" : "q"} = {fmt(l.q)} kN/m
+              {l.label ? `${l.label}: ` : ""}{l.cat === "G" ? "g" : "q"} = {fmt(l.q)} kN/m
             </text>
           </g>
         );

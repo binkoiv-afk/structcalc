@@ -9,7 +9,7 @@ export function Report({ r, input, t, obj, elem, steel, code }: {
   const g = governing(r.member.checks);
   const date = new Date().toLocaleDateString();
   const loadText = (l: BeamDesignInput["loads"][number]) => {
-    const cat = t(`cat_${l.cat}`);
+    const cat = (l.label ? `${l.label} · ` : "") + t(`cat_${l.cat}`) + (l.gf != null ? ` (γfm = ${l.gf}${l.gfe != null ? `, γfe = ${l.gfe}` : ""})` : "");
     if (l.type === "udl") {
       const range = l.from != null || l.to != null ? ` (${l.from ?? 0}…${l.to ?? "L"} m)` : "";
       return `${cat}: q = ${l.q} kN/m${range}`;
@@ -48,8 +48,11 @@ export function Report({ r, input, t, obj, elem, steel, code }: {
           <tr><td>{t("rep_spans")}</td><td>{input.spans.map((s) => `${s} m`).join(" + ")}</td></tr>
           <tr><td>{t("rep_supports")}</td><td>{input.supports.map((s) => t(`sup_${s}`)).join(" — ")}</td></tr>
           <tr><td>{t("rep_loadsList")}</td><td>{input.loads.map((l, i) => <div key={i}>{loadText(l)}</div>)}</td></tr>
+          {input.loads.some((l) => l.note) && (
+            <tr><td>{t("rep_loadsDerivation")}</td><td>{input.loads.filter((l) => l.note).map((l, i) => <div key={i} className="rep-note">{l.note}</div>)}</td></tr>
+          )}
           <tr><td>{t("rep_selfw")}</td><td>{input.selfWeight ? `${t("yes")}, ${(r.section.mass * 9.81 / 1000).toFixed(3)} kN/m` : t("no")}</td></tr>
-          <tr><td>{t("rep_comb")}</td><td>{input.gammaG}·G + {input.gammaQ}·Q{code === "DBN" ? `; γc = ${input.gammaC ?? 1}; γn = ${input.gammaN ?? 1}` : ""}</td></tr>
+          <tr><td>{t("rep_comb")}</td><td>{input.gammaG}·G + {input.gammaQ}·Q{input.loads.some((l) => l.gf != null) ? ` (${t("rep_ownGf")})` : ""}{r.uplift ? `; ${t("rep_uplift")}` : ""}{code === "DBN" ? `; γc = ${input.gammaC ?? 1}; γn = ${input.gammaN ?? 1}` : ""}</td></tr>
           <tr><td>{t("rep_steel")}</td><td>{steel}</td></tr>
           <tr><td>{t("rep_ltb")}</td><td>{input.ltb.restrained ? t("yes") : `${t("no")}; ${t("loadAt").toLowerCase()}: ${t(`load_${input.ltb.loadAt}`)}; ${t("restraintsN").toLowerCase()}: ${t(`rest_${input.ltb.restraints ?? 0}`)}; l_ef = ${(r.LcrLT / 1000).toFixed(2)} m`}</td></tr>
           <tr><td>{t("rep_defl")}</td><td>{r.member.checks.find((c) => c.key === "deflection")?.formula ?? "—"}</td></tr>
