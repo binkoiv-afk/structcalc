@@ -79,8 +79,8 @@ export function Diagrams({ r, t, spans }: { r: BeamDesignResult; t: T; spans: nu
   spans.forEach((s) => sup.push(sup[sup.length - 1] + s * 1000));
   return (
     <div className="diagrams">
-      <Diagram x={r.uls.x} y={r.uls.M.map((v) => v / 1e6)} title="M" unit="kN·m" supportsX={sup} invert />
-      <Diagram x={r.uls.x} y={r.uls.V.map((v) => v / 1e3)} title={t("diagV").split(",")[0]} unit="kN" supportsX={sup} />
+      <Diagram x={r.envelope.x} y={r.envelope.Mmax.map((v) => v / 1e6)} y2={r.envelope.Mmin.map((v) => v / 1e6)} title={`M · ${t("envelope")}`} unit="kN·m" supportsX={sup} invert />
+      <Diagram x={r.envelope.x} y={r.envelope.Vmax.map((v) => v / 1e3)} y2={r.envelope.Vmin.map((v) => v / 1e3)} title={`${t("diagV").split(",")[0]} · ${t("envelope")}`} unit="kN" supportsX={sup} />
       <Diagram x={r.sls.x} y={r.sls.w} title="f" unit="mm" supportsX={sup} invert />
     </div>
   );
@@ -107,5 +107,33 @@ export function SectionProps({ r, code, t }: { r: MemberView; code: CodeId; t: T
         <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
       ))}
     </dl>
+  );
+}
+
+/** Расчетные сочетания и полный перечень. */
+export function Combos({ r, t }: { r: BeamDesignResult; t: T }) {
+  const g = r.govern;
+  const row = (k: string, i: number) => (
+    <div className="combo-gov"><span className="lbl">{t(k)}</span><code>{r.combos[i].text.split("g_sw").join(t("g_sw"))}</code></div>
+  );
+  const kinds = ["ULS", "ACC", "SLS"] as const;
+  return (
+    <div className="combos">
+      {row("gov_M", g.M)}
+      {g.V !== g.M && row("gov_V", g.V)}
+      {row("gov_w", g.w)}
+      <details>
+        <summary>{t("allCombos")} ({r.combos.length})</summary>
+        {kinds.map((k) => {
+          const list = r.combos.filter((c) => c.kind === k);
+          return list.length ? (
+            <div key={k} className="combo-list">
+              <div className="lbl">{t(`comb_${k}`)} ({list.length})</div>
+              <ol>{list.map((c, i) => <li key={i}><code>{c.text.split("g_sw").join(t("g_sw"))}</code></li>)}</ol>
+            </div>
+          ) : null;
+        })}
+      </details>
+    </div>
   );
 }

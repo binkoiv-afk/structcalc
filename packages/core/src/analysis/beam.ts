@@ -21,6 +21,8 @@ export interface BeamModel {
   loads: BeamLoad[];
   /** жесткость упругих опор, Н/мм (по индексу опоры) */
   springs?: number[];
+  /** дополнительные узлы сетки, мм — чтобы результаты разных загружений совпадали по сетке (суперпозиция) */
+  extraKeys?: number[];
 }
 
 export interface BeamResult {
@@ -37,27 +39,43 @@ export interface BeamResult {
   spanDeflections: { span: number; L: number; Lref: number; w: number; x: number }[];
 }
 
-/** Решение СЛАУ с ленточной симметричной положительно определенной матрицей
- *  (полуширина ленты bw) методом Гаусса без выбора ведущего элемента. */
-function solveBanded(A: number[][], b: number[], bw = 4): number[] {
+const BW = 3; // полуширина ленты: у балочного элемента 4 соседние степени свободы
+
+/** Ленточная матрица: row[i][j − i + BW] для |j − i| ≤ BW. */
+class Band {
+  rows: Float64Array[];
+  constructor(public n: number) { this.rows = Array.from({ length: n }, () => new Float64Array(2 * BW + 1)); }
+  add(i: number, j: number, v: number) { this.rows[i][j - i + BW] += v; }
+  get(i: number, j: number) { return Math.abs(j - i) > BW ? 0 : this.rows[i][j - i + BW]; }
+  mulRow(i: number, u: ArrayLike<number>) {
+    let s = 0;
+    for (let j = Math.max(0, i - BW); j <= Math.min(this.n - 1, i + BW); j++) s += this.rows[i][j - i + BW] * u[j];
+    return s;
+  }
+}
+
+/** Решение ленточной СЛАУ методом Гаусса без выбора ведущего элемента (матрица положительно определена). */
+function solveBanded(A: Band, b: number[]): number[] {
   const n = b.length;
-  const M = A.map((r) => [...r]);
+  const M = A.rows.map((r) => Float64Array.from(r));
+  const at = (i: number, j: number) => M[i][j - i + BW];
   const y = [...b];
+  const diag0 = A.rows.map((r) => Math.abs(r[BW]));
   for (let c = 0; c < n; c++) {
-    if (Math.abs(M[c][c]) < 1e-9 * (Math.abs(A[c][c]) + 1)) throw new Error("Система геометрически изменяема (недостаточно опор)");
-    const rmax = Math.min(n - 1, c + bw);
+    if (Math.abs(at(c, c)) < 1e-9 * (diag0[c] + 1)) throw new Error("Система геометрически изменяема (недостаточно опор)");
+    const rmax = Math.min(n - 1, c + BW);
     for (let r = c + 1; r <= rmax; r++) {
-      const fct = M[r][c] / M[c][c];
+      const fct = at(r, c) / at(c, c);
       if (fct === 0) continue;
-      for (let k = c; k <= rmax; k++) M[r][k] -= fct * M[c][k];
+      for (let k = c; k <= Math.min(n - 1, c + BW); k++) M[r][k - r + BW] -= fct * at(c, k);
       y[r] -= fct * y[c];
     }
   }
   const x = new Array(n).fill(0);
   for (let r = n - 1; r >= 0; r--) {
     let sum = y[r];
-    for (let k = r + 1; k <= Math.min(n - 1, r + bw); k++) sum -= M[r][k] * x[k];
-    x[r] = sum / M[r][r];
+    for (let k = r + 1; k <= Math.min(n - 1, r + BW); k++) sum -= at(r, k) * x[k];
+    x[r] = sum / at(r, r);
   }
   return x;
 }
@@ -77,6 +95,7 @@ export function analyzeBeam(model: BeamModel, divisions = 240): BeamResult {
 
   // ключевые точки сетки
   const keys = new Set<number>(supportX);
+  for (const k of model.extraKeys ?? []) keys.add(clamp(k, 0, Ltot));
   for (const l of loads) {
     if (l.type === "udl") { keys.add(clamp(l.from ?? 0, 0, Ltot)); keys.add(clamp(l.to ?? Ltot, 0, Ltot)); }
     else keys.add(clamp(l.x, 0, Ltot));
@@ -91,7 +110,7 @@ export function analyzeBeam(model: BeamModel, divisions = 240): BeamResult {
     for (let k = 1; k <= n; k++) xs.push(a + ((b - a) * k) / n);
   }
   const nn = xs.length, nd = 2 * nn;
-  const K = Array.from({ length: nd }, () => new Array(nd).fill(0));
+  const K = new Band(nd);
   const F = new Array(nd).fill(0);
   const elemQ: [number, number][] = [];
   const idx = (x: number) => xs.findIndex((v) => Math.abs(v - x) < 1e-6);
@@ -105,7 +124,7 @@ export function analyzeBeam(model: BeamModel, divisions = 240): BeamResult {
     elemQ.push([qa, qb]);
     const k = elemK(EI, L);
     const d = [2 * e, 2 * e + 1, 2 * e + 2, 2 * e + 3];
-    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) K[d[i]][d[j]] += k[i][j];
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) K.add(d[i], d[j], k[i][j]);
     const fe = elemF(qa, qb, L);
     for (let i = 0; i < 4; i++) F[d[i]] += fe[i];
   }
@@ -118,17 +137,24 @@ export function analyzeBeam(model: BeamModel, divisions = 240): BeamResult {
     const n = idx(supportX[i]);
     if (s === "pin" || s === "fixed") fixed.add(2 * n);
     if (s === "fixed" || s === "slide") fixed.add(2 * n + 1);
-    if (s === "spring") K[2 * n][2 * n] += model.springs?.[i] ?? 0;
+    if (s === "spring") K.add(2 * n, 2 * n, model.springs?.[i] ?? 0);
   });
   const free = [...Array(nd).keys()].filter((d) => !fixed.has(d));
-  const Kff = free.map((i) => free.map((j) => K[i][j]));
+  // исключение закрепленных степеней свободы сохраняет порядок, поэтому лента не расширяется
+  const Kff = new Band(free.length);
+  free.forEach((gi, a) => {
+    for (let b = Math.max(0, a - BW); b <= Math.min(free.length - 1, a + BW); b++) {
+      const v = K.get(gi, free[b]);
+      if (v) Kff.add(a, b, v);
+    }
+  });
   const uf = solveBanded(Kff, free.map((i) => F[i]));
   const u = new Array(nd).fill(0);
   free.forEach((d, k) => (u[d] = uf[k]));
 
   const reactions = supports.map((s, i) => {
     const n = idx(supportX[i]);
-    const r = (d: number) => K[d].reduce((acc, kij, j) => acc + kij * u[j], 0) - F[d];
+    const r = (d: number) => K.mulRow(d, u) - F[d];
     const R = s === "free" || s === "slide" ? 0 : s === "spring" ? -(model.springs?.[i] ?? 0) * u[2 * n] : r(2 * n);
     return { x: supportX[i], R, M: s === "fixed" || s === "slide" ? r(2 * n + 1) : 0 };
   });
@@ -149,26 +175,7 @@ export function analyzeBeam(model: BeamModel, divisions = 240): BeamResult {
     W.push(-ue[0], wmid, -ue[2]);
   }
 
-  const spanDeflections = spans.map((L, i) => {
-    const a = supportX[i], b = supportX[i + 1];
-    let w = 0, xw = a;
-    X.forEach((x, k) => { if (x >= a - 1e-6 && x <= b + 1e-6 && Math.abs(W[k]) > Math.abs(w)) { w = W[k]; xw = x; } });
-    // для консоли — прогиб относительно опоры, для пролета — относительно хорды опор
-    const isCant = supports[i] === "free" || supports[i + 1] === "free";
-    if (!isCant) {
-      let best = 0;
-      const wa = W[X.findIndex((x) => Math.abs(x - a) < 1e-6)] ?? 0;
-      const wb = W[X.findIndex((x) => Math.abs(x - b) < 1e-6)] ?? 0;
-      X.forEach((x, k) => {
-        if (x >= a - 1e-6 && x <= b + 1e-6) {
-          const rel = W[k] - (wa + ((wb - wa) * (x - a)) / L);
-          if (Math.abs(rel) > Math.abs(best)) { best = rel; xw = x; }
-        }
-      });
-      w = best;
-    }
-    return { span: i, L, Lref: isCant ? 2 * L : L, w, x: xw };
-  });
+  const spanDeflections = spanDeflectionsOf(X, W, spans, supports);
 
   return {
     x: X, M, V, w: W, reactions,
@@ -200,4 +207,49 @@ function elemF(qa: number, qb: number, L: number): number[] {
 
 function clamp(v: number, a: number, b: number) {
   return Math.min(b, Math.max(a, v));
+}
+
+/** Прогибы по пролетам: для пролета — относительно хорды опор, для консоли — абсолютный, Lref = 2L. */
+export function spanDeflectionsOf(X: number[], W: number[], spans: number[], supports: SupportType[]) {
+  const supportX: number[] = [0];
+  for (const L of spans) supportX.push(supportX[supportX.length - 1] + L);
+  return spans.map((L, i) => {
+    const a = supportX[i], b = supportX[i + 1];
+    let w = 0, xw = a;
+    X.forEach((x, k) => { if (x >= a - 1e-6 && x <= b + 1e-6 && Math.abs(W[k]) > Math.abs(w)) { w = W[k]; xw = x; } });
+    // для консоли — прогиб относительно опоры, для пролета — относительно хорды опор
+    const isCant = supports[i] === "free" || supports[i + 1] === "free";
+    if (!isCant) {
+      let best = 0;
+      const wa = W[X.findIndex((x) => Math.abs(x - a) < 1e-6)] ?? 0;
+      const wb = W[X.findIndex((x) => Math.abs(x - b) < 1e-6)] ?? 0;
+      X.forEach((x, k) => {
+        if (x >= a - 1e-6 && x <= b + 1e-6) {
+          const rel = W[k] - (wa + ((wb - wa) * (x - a)) / L);
+          if (Math.abs(rel) > Math.abs(best)) { best = rel; xw = x; }
+        }
+      });
+      w = best;
+    }
+    return { span: i, L, Lref: isCant ? 2 * L : L, w, x: xw };
+  });
+}
+
+/** Суперпозиция результатов, посчитанных на одной сетке: Σ f_i · R_i. */
+export function combineResults(parts: BeamResult[], f: number[], spans: number[], supports: SupportType[]): BeamResult {
+  const base = parts[0];
+  const n = base.x.length;
+  const M = new Array(n).fill(0), V = new Array(n).fill(0), W = new Array(n).fill(0);
+  const reactions = base.reactions.map((r) => ({ x: r.x, R: 0, M: 0 }));
+  parts.forEach((p, i) => {
+    const k = f[i];
+    if (!k) return;
+    for (let j = 0; j < n; j++) { M[j] += k * p.M[j]; V[j] += k * p.V[j]; W[j] += k * p.w[j]; }
+    p.reactions.forEach((r, j) => { reactions[j].R += k * r.R; reactions[j].M += k * r.M; });
+  });
+  return {
+    x: base.x, M, V, w: W, reactions,
+    Mmax: Math.max(...M), Mmin: Math.min(...M), Vabs: Math.max(...V.map(Math.abs)),
+    spanDeflections: spanDeflectionsOf(base.x, W, spans, supports),
+  };
 }

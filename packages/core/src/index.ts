@@ -12,3 +12,4 @@ export * from "./loads/en1991";
 export * from "./loads/citiesUA";
 export * from "./codes/dbn198ecc";
 export * from "./design/columnDesign";
+export * from "./loads/combinations";

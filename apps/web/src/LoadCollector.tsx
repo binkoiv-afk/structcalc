@@ -76,7 +76,7 @@ export function LoadCollector({ code, c, set, onAdd, t }: {
             <span>Sm = <b>{kPa(sn.Sm)}</b> kPa</span><span>Se = <b>{kPa(sn.Se)}</b> kPa</span>
             <span>q<sub>m</sub> = <b>{f2(qs * sn.gfm)}</b> kN/m</span>
           </div>
-          <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qs.toFixed(3), gf: +sn.gfm.toFixed(4), gfe: +sn.gfe.toFixed(4), label: t("lc_snow"), note: snowNote })}>{t("lc_addSnow")}</button>
+          <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qs.toFixed(3), gf: +sn.gfm.toFixed(4), gfe: +sn.gfe.toFixed(4), label: t("lc_snow"), group: t("lc_snow"), psi0: 0.5, note: snowNote })}>{t("lc_addSnow")}</button>
         </div>
 
         <div className="lc-block">
@@ -105,7 +105,7 @@ export function LoadCollector({ code, c, set, onAdd, t }: {
             <span>Wm = <b>{kPa(wn.Wm)}</b> kPa</span><span>We = <b>{kPa(wn.We)}</b> kPa</span>
             <span>q<sub>m</sub> = <b>{f2(qw * wn.gfm)}</b> kN/m</span>
           </div>
-          <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qw.toFixed(3), gf: +wn.gfm.toFixed(4), gfe: +wn.gfe.toFixed(4), label: t("lc_wind"), note: windNote })}>{t("lc_addWind")}</button>
+          <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qw.toFixed(3), gf: +wn.gfm.toFixed(4), gfe: +wn.gfe.toFixed(4), label: t("lc_wind"), group: t("lc_wind"), psi0: 0.6, note: windNote })}>{t("lc_addWind")}</button>
           <p className="hint">{t("lc_hintDBN")}</p>
         </div>
       </fieldset>
@@ -132,7 +132,7 @@ export function LoadCollector({ code, c, set, onAdd, t }: {
           <label><span className="lbl">Ct</span>{N("Ct", "0.1")}</label>
         </div>
         <div className="lc-out"><span>μ1 = <b>{f2(sn.mu)}</b></span><span>s = <b>{kPa(sn.s)}</b> kPa</span><span>q = <b>{f2(qs)}</b> kN/m</span></div>
-        <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qs.toFixed(3), label: t("lc_snow"), note: snowNote })}>{t("lc_addSnow")}</button>
+        <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qs.toFixed(3), label: t("lc_snow"), group: t("lc_snow"), psi0: 0.5, note: snowNote })}>{t("lc_addSnow")}</button>
       </div>
       <div className="lc-block">
         <div className="lc-head">{t("lc_wind")} · EN 1991-1-4</div>
@@ -147,7 +147,7 @@ export function LoadCollector({ code, c, set, onAdd, t }: {
           <label><span className="lbl">c<sub>pe</sub></span>{N("cpe", "0.05")}</label>
         </div>
         <div className="lc-out"><span>q<sub>p</sub> = <b>{kPa(wn.qp)}</b> kPa</span><span>c<sub>e</sub> = <b>{f2(wn.ce)}</b></span><span>w = <b>{kPa(wn.w)}</b> kPa</span><span>q = <b>{f2(qw)}</b> kN/m</span></div>
-        <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qw.toFixed(3), label: t("lc_wind"), note: windNote })}>{t("lc_addWind")}</button>
+        <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qw.toFixed(3), label: t("lc_wind"), group: t("lc_wind"), psi0: 0.6, note: windNote })}>{t("lc_addWind")}</button>
         <p className="hint">{t("lc_hintEN")}</p>
       </div>
     </fieldset>

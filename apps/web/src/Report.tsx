@@ -1,6 +1,6 @@
 import type { BeamDesignInput, BeamDesignResult, CodeId } from "@structcalc/core";
 import { Scheme } from "./Scheme";
-import { CheckList, Diagrams, governing, pct, SectionProps, T, utilState } from "./Results";
+import { CheckList, Combos, Diagrams, governing, pct, SectionProps, T, utilState } from "./Results";
 
 // Отчет в стиле статрасчета: вывод → исходные данные → схема и усилия → проверки → характеристики.
 export function Report({ r, input, t, obj, elem, steel, code }: {
@@ -52,7 +52,7 @@ export function Report({ r, input, t, obj, elem, steel, code }: {
             <tr><td>{t("rep_loadsDerivation")}</td><td>{input.loads.filter((l) => l.note).map((l, i) => <div key={i} className="rep-note">{l.note}</div>)}</td></tr>
           )}
           <tr><td>{t("rep_selfw")}</td><td>{input.selfWeight ? `${t("yes")}, ${(r.section.mass * 9.81 / 1000).toFixed(3)} kN/m` : t("no")}</td></tr>
-          <tr><td>{t("rep_comb")}</td><td>{input.gammaG}·G + {input.gammaQ}·Q{input.loads.some((l) => l.gf != null) ? ` (${t("rep_ownGf")})` : ""}{r.uplift ? `; ${t("rep_uplift")}` : ""}{code === "DBN" ? `; γc = ${input.gammaC ?? 1}; γn = ${input.gammaN ?? 1}` : ""}</td></tr>
+          <tr><td>{t("rep_comb")}</td><td>{code === "DBN" ? t("rep_combDBN") : t("rep_combEN")}; γ<sub>G</sub> = {input.gammaG}, γ<sub>Q</sub> = {input.gammaQ}{input.loads.some((l) => l.gf != null) ? ` (${t("rep_ownGf")})` : ""}{r.uplift ? `; ${t("rep_uplift")}` : ""}{code === "DBN" ? `; γc = ${input.gammaC ?? 1}; γn = ${input.gammaN ?? 1}` : ""}</td></tr>
           <tr><td>{t("rep_steel")}</td><td>{steel}</td></tr>
           <tr><td>{t("rep_ltb")}</td><td>{input.ltb.restrained ? t("yes") : `${t("no")}; ${t("loadAt").toLowerCase()}: ${t(`load_${input.ltb.loadAt}`)}; ${t("restraintsN").toLowerCase()}: ${t(`rest_${input.ltb.restraints ?? 0}`)}; l_ef = ${(r.LcrLT / 1000).toFixed(2)} m`}</td></tr>
           <tr><td>{t("rep_defl")}</td><td>{r.member.checks.find((c) => c.key === "deflection")?.formula ?? "—"}</td></tr>
@@ -63,6 +63,8 @@ export function Report({ r, input, t, obj, elem, steel, code }: {
       <Scheme spans={input.spans} supports={input.supports} loads={input.loads} t={t} />
       <p className="rep-line">M<sub>max</sub> = {Mmax.toFixed(2)} kN·m; Q<sub>max</sub> = {(r.uls.Vabs / 1e3).toFixed(2)} kN; {r.uls.reactions.map((x, i) => `R${i + 1} = ${(x.R / 1e3).toFixed(2)} kN`).join("; ")}</p>
       <Diagrams r={r} t={t} spans={input.spans} />
+      <h3 className="rep-h3">{t("combos")}</h3>
+      <Combos r={r} t={t} />
 
       <h2>{t("rep_checks")}</h2>
       <CheckList checks={r.member.checks} t={t} />

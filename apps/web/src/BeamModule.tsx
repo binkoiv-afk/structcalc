@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import {
   BeamDesignInput, CodeId, DEFAULT_FACTORS, designBeam, FAMILIES, familySections, findSection,
   selectBeam, STEELS, SupportType, UserLoad,
 } from "@structcalc/core";
 import { Scheme } from "./Scheme";
-import { CheckList, Diagrams, pct, SectionProps, Summary, utilState } from "./Results";
+import { CheckList, Combos, Diagrams, SectionProps, Summary } from "./Results";
 import { Report } from "./Report";
 import { CollectorState, LoadCollector } from "./LoadCollector";
 import { TriedList } from "./TriedList";
@@ -39,6 +39,7 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
 }) {
   const [tab, setTab] = useState<Tab>("results");
   const [showLc, setShowLc] = useState(false);
+  const [openLoad, setOpenLoad] = useState(-1);
 
   const input: BeamDesignInput = useMemo(() => ({
     code, steel: s.steel, spans: s.spans, supports: s.supports, springs: s.supports.map((_, i) => s.springs[i] ?? 0), loads: s.loads, selfWeight: s.selfWeight,
@@ -48,18 +49,19 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
     axial: s.useAxial ? { NEd: s.NEd, Lcr_y: s.Lcr_y, Lcr_z: s.Lcr_z } : undefined,
   }), [s]);
 
+  const dInput = useDeferredValue(input);
   const calc = useMemo(() => {
     try {
       if (s.mode === "select") {
-        const sel = selectBeam(input, s.family);
+        const sel = selectBeam(dInput, s.family);
         return { result: sel.best, tried: sel.tried, error: undefined as string | undefined };
       }
       const sec = findSection(s.family, s.size) ?? familySections(s.family)[0];
-      return { result: designBeam(input, sec), tried: undefined, error: undefined };
+      return { result: designBeam(dInput, sec), tried: undefined, error: undefined };
     } catch (e) {
       return { result: undefined, tried: undefined, error: String((e as Error).message) };
     }
-  }, [input, s.mode, s.family, s.size]);
+  }, [dInput, s.mode, s.family, s.size]);
 
   const updateSpan = (i: number, v: number) => set({ spans: s.spans.map((x, k) => (k === i ? v : x)) });
   const updateSupport = (i: number, v: SupportType) => {
@@ -113,6 +115,11 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
             <div className="load-list">
               {s.loads.map((l, i) => (
                 <div key={i} className={`load-card ${l.cat}`}>
+                  <div className="load-head">
+                    <span className="load-name">{l.label ?? `${l.cat}${i + 1}`}</span>
+                    {l.gf != null && <span className="load-tag" title={l.note}>γf {l.gf.toFixed(2)}{l.gfe != null ? ` · γfe ${l.gfe.toFixed(2)}` : ""}</span>}
+                    {l.group && <span className="load-tag">{t("group")}: {l.group}</span>}
+                  </div>
                   <div className="load-row">
                     <select id={`lt${i}`} value={kindOf(l)} onChange={(e) => {
                       const kind = e.target.value as LoadKind;
@@ -125,10 +132,10 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
                     }}>
                       {(["udl", "trap", "point", "moment"] as const).map((o) => <option key={o} value={o}>{t(`load_${o}`)}</option>)}
                     </select>
-                    <select id={`lc${i}`} value={l.cat} onChange={(e) => updateLoad(i, { cat: e.target.value as "G" | "Q" })}>
-                      <option value="G">{t("cat_G")}</option><option value="Q">{t("cat_Q")}</option>
+                    <select id={`lc${i}`} value={l.cat} onChange={(e) => updateLoad(i, { cat: e.target.value as UserLoad["cat"] })}>
+                      {(["G", "L", "Q", "A"] as const).map((c) => <option key={c} value={c}>{t(`cat_${c}`)}</option>)}
                     </select>
-                    {l.label && <span className="load-tag" title={l.note}>{l.label}{l.gf != null ? ` · γf ${l.gf.toFixed(2)}` : ""}</span>}
+                    <button className="icon more" aria-label={t("loadMore")} title={t("loadMore")} onClick={() => setOpenLoad(openLoad === i ? -1 : i)}>⋯</button>
                     <button className="icon" aria-label="×" onClick={() => set({ loads: s.loads.filter((_, k) => k !== i) })}>×</button>
                   </div>
                   <div className="load-row">
@@ -152,6 +159,19 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
                       <label><span className="lbl">{t("position")}</span><input id={`lx${i}`} type="number" step="0.1" value={l.x} onChange={(e) => updateLoad(i, { x: num(e.target.value) } as Partial<UserLoad>)} /></label>
                     )}
                   </div>
+                  {openLoad === i && (
+                    <div className="load-more grid2">
+                      <label><span className="lbl">{t("label")}</span><input id={`ln${i}`} value={l.label ?? ""} placeholder={`${l.cat}${i + 1}`} onChange={(e) => updateLoad(i, { label: e.target.value || undefined })} /></label>
+                      <label><span className="lbl">{t("group")}</span><input id={`lg${i}`} value={l.group ?? ""} placeholder="—" onChange={(e) => updateLoad(i, { group: e.target.value || undefined })} /></label>
+                      <label><span className="lbl">γf</span><input id={`lgf${i}`} type="number" step="0.05" value={l.gf ?? ""} placeholder={String(l.cat === "G" ? s.gammaG : l.cat === "A" ? 1 : s.gammaQ)} onChange={(e) => updateLoad(i, { gf: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
+                      <label><span className="lbl">{code === "DBN" ? "γfe" : "ψ0"}</span>
+                        {code === "DBN"
+                          ? <input id={`lgfe${i}`} type="number" step="0.05" value={l.gfe ?? ""} placeholder="1" onChange={(e) => updateLoad(i, { gfe: e.target.value === "" ? undefined : num(e.target.value) })} />
+                          : <input id={`lpsi${i}`} type="number" step="0.1" value={l.psi0 ?? ""} placeholder="0.7" onChange={(e) => updateLoad(i, { psi0: e.target.value === "" ? undefined : num(e.target.value) })} />}
+                      </label>
+                      <p className="hint wide">{t("groupHint")}</p>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -262,6 +282,10 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
                     <span key={i}>R{i + 1} = <b>{(x.R / 1000).toFixed(2)}</b> kN{x.M ? <> · M = <b>{(x.M / 1e6).toFixed(2)}</b> kN·m</> : null}</span>
                   ))}
                 </div>
+              </div>
+              <div className="panel">
+                <h3>{t("combos")}</h3>
+                <Combos r={r} t={t} />
               </div>
               <div className="panel">
                 <h3>{t("results")}</h3>
