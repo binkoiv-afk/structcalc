@@ -24,7 +24,10 @@ export function governing(checks: Check[]): Check | undefined {
   return checks.reduce<Check | undefined>((a, c) => (!a || !(c.util <= a.util) ? c : a), undefined);
 }
 
-export function Summary({ r, t, steel }: { r: BeamDesignResult; t: T; steel: string }) {
+/** То, что нужно для сводки и характеристик: сечение, проверки и (для балок) параметры ПФУ. */
+export interface MemberView { section: BeamDesignResult["section"]; member: BeamDesignResult["member"]; C1?: number; LcrLT?: number }
+
+export function Summary({ r, t, steel }: { r: MemberView; t: T; steel: string }) {
   const g = governing(r.member.checks);
   const st = utilState(r.member.maxUtil);
   return (
@@ -83,7 +86,7 @@ export function Diagrams({ r, t, spans }: { r: BeamDesignResult; t: T; spans: nu
   );
 }
 
-export function SectionProps({ r, code, t }: { r: BeamDesignResult; code: CodeId; t: T }) {
+export function SectionProps({ r, code, t }: { r: MemberView; code: CodeId; t: T }) {
   const s = r.section;
   const ax = code === "DBN" ? { y: "x", z: "y" } : { y: "y", z: "z" };
   const rows: [string, string][] = [
@@ -97,7 +100,7 @@ export function SectionProps({ r, code, t }: { r: BeamDesignResult; code: CodeId
   ];
   if (s.Iw > 0) rows.push(["Iw", `${(s.Iw / 1e6).toFixed(0)} cm⁶`]);
   for (const v of r.member.values) rows.push([v.symbol, `${Number.isInteger(v.value) ? v.value : v.value.toFixed(3)} ${v.unit}`]);
-  rows.push([t("C1"), r.C1.toFixed(3)], ["Lcr,LT", `${(r.LcrLT / 1000).toFixed(2)} m`]);
+  if (r.C1 != null && r.LcrLT != null) rows.push([t("C1"), r.C1.toFixed(3)], ["Lcr,LT", `${(r.LcrLT / 1000).toFixed(2)} m`]);
   return (
     <dl className="props">
       {rows.map(([k, v]) => (

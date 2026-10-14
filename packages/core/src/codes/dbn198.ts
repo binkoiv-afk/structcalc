@@ -7,6 +7,8 @@ import {
   Check, cm3, f, finalize, Intermediate, kN, kNm, maxThickness, mcrDoublySymmetric, MemberInput, MemberResult, mkCheck,
 } from "./types";
 
+import { cDBN, etaDBN, phiE } from "./dbn198ecc";
+
 const CL = "ДБН В.2.6-198";
 
 /** Тип кривой устойчивости (рис. Ж.1). Отнесение сечений требует сверки с рисунком. */
@@ -184,27 +186,63 @@ export function checkMemberDBN(inp: MemberInput): MemberResult {
   if (NEd > 0) {
     if (MEd > 0) {
       const u = NEd / (s.A * R) + MEd / (s.Wy * R);
-      checks.push(mkCheck("strengthNM", `${CL}, розд. 10`, "N/(A·R_y·γ_c) + M/(W_x·R_y·γ_c) ≤ 1",
-        `${f(NEd / s.A, 1)}/${f(R, 1)} + ${f(MEd / s.Wy, 1)}/${f(R, 1)}`, u, ["nmStabilityTodo"]));
+      checks.push(mkCheck("strengthNM", `${CL}, п. 10.1.1, ф. (10.3)`, "N/(A·R_y·γ_c) + M/(W_x·R_y·γ_c) ≤ 1",
+        `${f(NEd / s.A, 1)}/${f(R, 1)} + ${f(MEd / s.Wy, 1)}/${f(R, 1)}`, u, ["elasticDBN"]));
     } else {
       checks.push(mkCheck("compression", `${CL}, п. 8.1`, "N·γ_n / (A·R_y·γ_c) ≤ 1",
         `${f(kN(NEd / gn))}${gnTxt}·10 / (${f(s.A / 100)}·${f(R, 1)}) = ${f(NEd / s.A, 1)} / ${f(R, 1)} MPa`, NEd / (s.A * R)));
     }
     if (inp.buckling) {
       const iz = s.kind === "L" ? s.imin : s.iz;
+      const lams: Record<"x" | "y", { lam: number; lamBar: number; phi: number; type: "a" | "b" | "c" }> = {} as never;
       for (const [axis, Lcr, i] of [["x", inp.buckling.Lcr_y, s.iy], ["y", inp.buckling.Lcr_z, iz]] as const) {
         const type = sectionTypeDBN(s, axis);
         const lam = Lcr / i;
         const lamBar = lam * Math.sqrt(Ry / st.E);
         const phi = phiDBN(lamBar, type);
+        lams[axis] = { lam, lamBar, phi, type };
         const u = NEd / (phi * s.A * R);
         checks.push(mkCheck(`flexBuckling_${axis === "x" ? "y" : "z"}`, `${CL}, п. 8.1.3, ф. (8.3)–(8.5)`, "N·γ_n / (φ·A·R_y·γ_c) ≤ 1",
           `l_ef = ${f(Lcr / 1000)} m; λ_${axis} = ${f(lam, 1)}; λ̄ = ${f(lamBar, 3)}; type ${type}; φ = ${f(phi, 3)}; ${f(kN(NEd))} / ${f(kN(phi * s.A * R))}`,
-          u, MEd > 0 ? ["nmStabilityTodo", "curveTypeCheck"] : ["curveTypeCheck"]));
+          u, ["curveTypeCheck"]));
         const alpha = Math.max(0.5, u);
         const lamU = 180 - 60 * alpha;
         checks.push(mkCheck(`slenderness_${axis === "x" ? "y" : "z"}`, `${CL}, п. 13.4`, "λ ≤ λ_u = 180 − 60α",
           `${f(lam, 1)} ≤ ${f(lamU, 1)}`, lam / lamU));
+      }
+      if (MEd > 0) {
+        // 10.2.2: стійкість у площині дії моменту
+        const m = (MEd / NEd) * (s.A / s.Wy);
+        const X = lams.x;
+        const { eta, type: etype, approx } = etaDBN(s, m, X.lamBar);
+        const mef = eta * m;
+        values.push({ key: "m", symbol: "m_x", value: m, unit: "" }, { key: "eta", symbol: "η", value: eta, unit: "" }, { key: "mef", symbol: "m_ef", value: mef, unit: "" });
+        if (mef <= 20) {
+          const pe = Math.min(phiE(X.lamBar, mef), X.phi);
+          values.push({ key: "phie", symbol: "φ_e", value: pe, unit: "" });
+          checks.push(mkCheck("stabilityInPlane", `${CL}, п. 10.2.2, ф. (10.6); табл. Ж.2, Ж.3`, "N·γ_n / (φ_e·A·R_y·γ_c) ≤ 1",
+            `m = ${f(m, 3)}; η = ${f(eta, 3)} (тип ${etype}); m_ef = ${f(mef, 3)}; λ̄_x = ${f(X.lamBar, 3)}; φ_e = ${f(pe, 3)}; ${f(kN(NEd))} / ${f(kN(pe * s.A * R))}`,
+            NEd / (pe * s.A * R), approx ? ["etaApprox", "mMaxTaken"] : ["mMaxTaken"]));
+        } else {
+          checks.push(mkCheck("stabilityInPlane", `${CL}, п. 10.2.2`, "m_ef > 20 → розрахунок як згинного елемента (9.28)",
+            `m_ef = ${f(mef, 2)}`, 0, ["mefOver20"]));
+        }
+        // 10.2.4: згинально-крутильна форма (з площини), двотавр
+        if (s.kind === "I") {
+          const Y = lams.y;
+          const lef = inp.buckling.Lcr_z;
+          const alphaT = 1.54 * (s.It / s.Iz) * (lef / s.h) ** 2;
+          const psi = psiDBN(alphaT, { cantilever: false, load: "uniform", flange: "compressed", restraints: 2 });
+          const pb = phiB(psi * (s.Iz / s.Iy) * (s.h / lef) ** 2 * (st.E / Ry));
+          const phiC = phiDBN(3.14, Y.type);
+          const { c, alpha, beta } = cDBN(m, Y.phi, phiC, Y.lamBar, pb);
+          values.push({ key: "c", symbol: "c", value: c, unit: "" });
+          const notes = ["mMaxTaken"];
+          if (Y.lamBar > 3.14) notes.push("cmaxTodo");
+          checks.push(mkCheck("stabilityOutPlane", `${CL}, п. 10.2.4, ф. (10.8)–(10.11)`, "N·γ_n / (c·φ_y·A·R_y·γ_c) ≤ 1",
+            `m_x = ${f(m, 3)}; α = ${f(alpha, 3)}; β = ${f(beta, 3)}; φ_b = ${f(pb, 3)}; c = ${f(c, 3)}; φ_y = ${f(Y.phi, 3)}; ${f(kN(NEd))} / ${f(kN(c * Y.phi * s.A * R))}`,
+            NEd / (c * Y.phi * s.A * R), notes));
+        }
       }
     }
   }

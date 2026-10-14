@@ -198,3 +198,56 @@ details.panel summary { cursor: pointer; color: var(--muted); font-weight: 600; 
 @media (prefers-reduced-motion: no-preference) {
   .ubar-fill { transition: width 0.25s ease; }
 }
+
+/* Навигация */
+.home-btn { display: inline-flex; align-items: center; gap: 10px; border: 0; background: transparent; cursor: pointer; font-weight: 600; font-size: 16px; padding: 0; }
+.crumb-sep { color: var(--line); font-weight: 400; }
+button.ghost.back { border-style: solid; color: var(--ink); align-self: center; white-space: nowrap; }
+@media (max-width: 560px) { button.ghost.back { display: none; } }
+
+/* Шаги ввода */
+.step { display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-size: 11px; margin-right: 6px; letter-spacing: 0; vertical-align: 1px; }
+details.adv { border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); padding: 10px 14px; }
+details.adv > summary { cursor: pointer; font-weight: 600; display: block; list-style: none; }
+details.adv > summary::-webkit-details-marker { display: none; }
+details.adv > summary::before { content: "+ "; color: var(--accent); }
+details.adv[open] > summary::before { content: "− "; }
+.adv-hint { display: block; font-weight: 400; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.adv-group { display: flex; flex-direction: column; gap: 10px; border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
+.adv-group h4 { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+button.ghost.on { border-style: solid; border-color: var(--accent); background: var(--accent-soft); }
+
+/* Стартовый экран */
+.home { max-width: 1120px; margin: 0 auto; padding: 28px max(16px, env(safe-area-inset-left, 0px)) 40px; }
+.home-title { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+.home-sub { color: var(--muted); margin: 0 0 24px; max-width: 720px; }
+.home-group { margin-bottom: 24px; }
+.home-group h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+.card { position: relative; text-align: left; display: flex; flex-direction: column; gap: 6px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); cursor: pointer; transition: border-color .15s, transform .15s, box-shadow .15s; }
+.card:hover:not(:disabled) { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 4px 14px rgba(20, 32, 54, 0.08); }
+.card.soon { cursor: default; opacity: 0.55; }
+.card-icon { width: 40px; height: 40px; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.card.soon .card-icon { stroke: var(--muted); }
+.card-title { font-weight: 600; font-size: 15px; }
+.card-desc { color: var(--muted); font-size: 12.5px; }
+.card-soon { position: absolute; top: 12px; right: 12px; font-size: 11px; border: 1px solid var(--line); border-radius: 10px; padding: 1px 8px; color: var(--muted); }
+
+/* Колонна и сечение */
+.two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.column-scheme, .section-drawing { width: 100%; max-width: 260px; display: block; margin: 0 auto; }
+.cs-bar { stroke: var(--ink); stroke-width: 4; }
+.cs-node { fill: var(--panel); stroke: var(--ink); stroke-width: 2; }
+.cs-sup, .cs-fix { stroke: var(--ink); stroke-width: 1.6; fill: none; }
+.cs-fix { stroke-width: 3; }
+.cs-load { stroke: var(--load-q); stroke-width: 2.5; }
+.cs-dim { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.sd-shape { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+.sd-axis { stroke: var(--muted); stroke-width: 0.8; stroke-dasharray: 8 3 2 3; }
+.sd-lbl, .sd-dim { fill: var(--muted); font: 12px var(--mono); }
+.props.one { grid-template-columns: 1fr; }
+.size-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--soft); border-radius: 6px; padding: 4px 9px; cursor: pointer; font-family: var(--mono); font-size: 12.5px; }
+.chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.layout.narrow { grid-template-columns: minmax(0, 520px); justify-content: center; }
+@media print { .home, .topbar { display: none; } }
