@@ -1,4 +1,5 @@
 // Переводы интерфейса. Новый язык — новый объект с теми же ключами.
+import { CONN } from "./i18nConn";
 export const LANGS = ["uk", "ru", "en", "pl", "de", "fr"] as const;
 export type Lang = (typeof LANGS)[number];
 
@@ -52,7 +53,7 @@ const uk: Dict = {
   mod_loads: "Сніг і вітер",
   mod_loads_d: "Збір навантажень за ДБН В.1.2-2 / EN 1991 для 164 міст України",
   mod_connection: "Вузли і з'єднання",
-  mod_connection_d: "Болти, зварні шви, опорні вузли",
+  mod_connection_d: "Зварка, болти, фрикційні, заклепки, саморізи, анкери",
   mod_frame: "Рами і ферми",
   mod_frame_d: "Стрижневі системи, МСЕ",
   mod_dynamic: "Динаміка і сейсміка",
@@ -217,7 +218,7 @@ const ru: Dict = {
   mod_loads: "Снег и ветер",
   mod_loads_d: "Сбор нагрузок по ДБН В.1.2-2 / EN 1991 для 164 городов Украины",
   mod_connection: "Узлы и соединения",
-  mod_connection_d: "Болты, сварные швы, опорные узлы",
+  mod_connection_d: "Сварка, болты, фрикционные, заклёпки, саморезы, анкеры",
   mod_frame: "Рамы и фермы",
   mod_frame_d: "Стержневые системы, МКЭ",
   mod_dynamic: "Динамика и сейсмика",
@@ -383,7 +384,7 @@ const en: Dict = {
   mod_loads: "Snow and wind",
   mod_loads_d: "DBN V.1.2-2 / EN 1991 loads, 164 Ukrainian cities",
   mod_connection: "Connections",
-  mod_connection_d: "Bolts, welds, base plates",
+  mod_connection_d: "Welds, bolts, slip-resistant, rivets, screws, anchors",
   mod_frame: "Frames and trusses",
   mod_frame_d: "Bar systems, FEM",
   mod_dynamic: "Dynamics and seismic",
@@ -577,6 +578,7 @@ const fr: Dict = {
 };
 
 export const DICTS: Record<Lang, Dict> = { uk, ru, en, pl, de, fr };
+for (const l of ["uk", "ru", "en"] as const) Object.assign(DICTS[l], CONN[l]);
 
 export function makeT(lang: Lang) {
   const d = DICTS[lang];

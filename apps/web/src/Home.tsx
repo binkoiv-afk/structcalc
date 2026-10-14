@@ -1,5 +1,5 @@
 // Стартовый экран: сначала выбирается тип расчета, затем открывается только нужный ввод.
-export type Screen = "home" | "beam" | "column" | "loads" | "section";
+export type Screen = "home" | "beam" | "column" | "loads" | "section" | "connection";
 
 const ICONS: Record<string, JSX.Element> = {
   beam: <><path d="M6 22h36" strokeWidth="3" /><path d="M6 22l-3 6h6zM42 22l-3 6h6z" /><path d="M10 10v8M17 10v8M24 10v8M31 10v8M38 10v8" /></>,
@@ -15,7 +15,7 @@ const ICONS: Record<string, JSX.Element> = {
 };
 
 const GROUPS: { key: string; items: { id: string; ready: boolean }[] }[] = [
-  { key: "grp_steel", items: [{ id: "beam", ready: true }, { id: "column", ready: true }, { id: "section", ready: true }, { id: "connection", ready: false }, { id: "frame", ready: false }] },
+  { key: "grp_steel", items: [{ id: "beam", ready: true }, { id: "column", ready: true }, { id: "section", ready: true }, { id: "connection", ready: true }, { id: "frame", ready: false }] },
   { key: "grp_loads", items: [{ id: "loads", ready: true }, { id: "dynamic", ready: false }] },
   { key: "grp_other", items: [{ id: "concrete", ready: false }, { id: "timber", ready: false }, { id: "thermal", ready: false }] },
 ];

@@ -265,3 +265,23 @@ button.icon.more { font-size: 16px; letter-spacing: 1px; }
 .combo-list ol { margin: 4px 0 8px; padding-left: 28px; max-height: 260px; overflow: auto; }
 .rep-h3 { font-size: 14px; margin: 14px 0 6px; }
 .top-controls select { width: auto; }
+
+/* Вузли і з'єднання */
+.conn-scheme { width: 100%; max-width: 320px; display: block; margin: 0 auto; }
+.cs-concrete { fill: var(--soft); stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 6 3; }
+.cs-plate { fill: var(--accent-soft); stroke: var(--ink); stroke-width: 1.5; }
+.cs-hole { fill: var(--panel); stroke: var(--ink); stroke-width: 1.5; }
+.cs-anchor { fill: var(--panel); stroke: var(--ink); stroke-width: 1.5; }
+.cs-anchor.t { fill: var(--fail); stroke: var(--fail); }
+.cs-weld { stroke: var(--warn); stroke-linecap: butt; }
+.cs-axis { stroke: var(--muted); stroke-width: 0.8; stroke-dasharray: 8 3 2 3; }
+.s-text.small { font-size: 10px; }
+.card-icon .fillicon { fill: currentColor; }
+.kind-back { align-self: flex-start; white-space: nowrap; }
+label.chk { display: flex; align-items: center; gap: 8px; flex-direction: row; cursor: pointer; }
+label.chk input { width: auto; }
+.props td.mono { font-family: var(--mono); }
+.rep-scheme { max-width: 340px; margin: 8px auto; }
+.conn-values { width: 100%; border-collapse: collapse; }
+.conn-values td { padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.conn-values td.mono { font-family: var(--mono); white-space: nowrap; text-align: right; }

@@ -6,15 +6,16 @@ import { BeamModule, BeamState, initialBeam } from "./BeamModule";
 import { ColumnModule, ColumnState, initialColumn } from "./ColumnModule";
 import { SectionModule, SectionState, initialSection } from "./SectionModule";
 import { LoadsModule } from "./LoadsModule";
+import { ConnectionsModule, ConnState, initialConn } from "./ConnectionsModule";
 import { CollectorState, initialCollector } from "./LoadCollector";
 
 interface AppState {
   lang: Lang; code: CodeId; screen: Screen;
-  beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState;
+  beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState; conn: ConnState;
 }
 
 const KEY = "structcalc.v2";
-const initial: AppState = { lang: "uk", code: "DBN", screen: "home", beam: initialBeam, column: initialColumn, lc: initialCollector, sec: initialSection };
+const initial: AppState = { lang: "uk", code: "DBN", screen: "home", beam: initialBeam, column: initialColumn, lc: initialCollector, sec: initialSection, conn: initialConn };
 
 function loadState(): AppState {
   try {
@@ -23,7 +24,7 @@ function loadState(): AppState {
       const o = JSON.parse(raw);
       return {
         ...initial, ...o, beam: { ...initialBeam, ...o.beam }, column: { ...initialColumn, ...o.column },
-        lc: { ...initialCollector, ...o.lc }, sec: { ...initialSection, ...o.sec },
+        lc: { ...initialCollector, ...o.lc }, sec: { ...initialSection, ...o.sec }, conn: { ...initialConn, ...o.conn },
       };
     }
     const old = localStorage.getItem("structcalc.beam"); // версия 0.1
@@ -83,6 +84,7 @@ export function App() {
           lc={s.lc} setLc={(p) => set({ lc: { ...s.lc, ...p } })} t={t} />
       )}
       {s.screen === "column" && <ColumnModule code={s.code} s={s.column} set={(p) => set({ column: { ...s.column, ...p } })} t={t} />}
+      {s.screen === "connection" && <ConnectionsModule code={s.code} s={s.conn} set={(p) => set({ conn: { ...s.conn, ...p } })} t={t} />}
       {s.screen === "section" && <SectionModule code={s.code} s={s.sec} set={(p) => set({ sec: { ...s.sec, ...p } })} t={t} />}
       {s.screen === "loads" && (
         <LoadsModule code={s.code} c={s.lc} set={(p) => set({ lc: { ...s.lc, ...p } })} t={t}
