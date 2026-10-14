@@ -1,5 +1,5 @@
 // ДБН В.2.6-198:2014 «Сталеві конструкції. Норми проектування».
-// Номера пунктов в отчете будут уточнены при сверке с текстом норм (см. docs/VERIFICATION.md).
+// Пункты — по оглавлению редакции со Зміною № 1; таблицы Ry и типы кривых φ требуют сверки с текстом норм.
 
 import type { Section } from "../geometry/sections";
 import { steel } from "../catalog/materials";
@@ -48,13 +48,13 @@ export function checkMemberDBN(inp: MemberInput): MemberResult {
 
   if (MEd > 0 && NEd === 0) {
     const sig = MEd / s.Wy;
-    checks.push(mkCheck("bending", CL, "M / (W_x·R_y·γ_c) ≤ 1",
+    checks.push(mkCheck("bending", `${CL}, п. 9.2`, "M / (W_x·R_y·γ_c) ≤ 1",
       `${f(kNm(MEd))}·10³ / (${f(cm3(s.Wy), 1)}·${Ry}·${gc}) = ${f(sig, 1)} / ${f(R, 1)} MPa`, sig / R, ["elasticDBN"]));
   }
   if (VEd > 0) {
     const S = s.Wply / 2;
     const tau = (VEd * S) / (s.Iy * s.tWeb);
-    checks.push(mkCheck("shear", CL, "Q·S / (I_x·t_w·R_s·γ_c) ≤ 1",
+    checks.push(mkCheck("shear", `${CL}, п. 9.2`, "Q·S / (I_x·t_w·R_s·γ_c) ≤ 1",
       `${f(kN(VEd))}·${f(cm3(S), 1)} / (${f(s.Iy / 1e4, 0)}·${f(s.tWeb / 10, 2)}) = ${f(tau, 1)} / ${f(Rs * gc, 1)} MPa`,
       tau / (Rs * gc)));
     if (MEd > 0 && s.kind === "I") {
@@ -63,7 +63,7 @@ export function checkMemberDBN(inp: MemberInput): MemberResult {
       const Sf = (s.b * tf * (s.h - tf)) / 2;
       const t1 = (VEd * Sf) / (s.Iy * tw);
       const sef = Math.sqrt(s1 * s1 + 3 * t1 * t1);
-      checks.push(mkCheck("reducedStress", CL, "√(σ₁² + 3τ₁²) / (1.15·R_y·γ_c) ≤ 1",
+      checks.push(mkCheck("reducedStress", `${CL}, п. 9.2`, "√(σ₁² + 3τ₁²) / (1.15·R_y·γ_c) ≤ 1",
         `σ₁ = ${f(s1, 1)}; τ₁ = ${f(t1, 1)}; σ_ef = ${f(sef, 1)} / ${f(1.15 * R, 1)} MPa`, sef / (1.15 * R), ["maxMQTogether"]));
     }
   }
@@ -78,7 +78,7 @@ export function checkMemberDBN(inp: MemberInput): MemberResult {
       { key: "phi1", symbol: "φ₁", value: phi1, unit: "" },
       { key: "phib", symbol: "φ_b", value: pb, unit: "" },
     );
-    checks.push(mkCheck("ltb", CL, "M / (φ_b·W_c·R_y·γ_c) ≤ 1",
+    checks.push(mkCheck("ltb", `${CL}, п. 9.4`, "M / (φ_b·W_c·R_y·γ_c) ≤ 1",
       `M_cr = ${f(kNm(Mcr))} kN·m; φ₁ = ${f(phi1, 3)}; φ_b = ${f(pb, 3)}; ${f(MEd / s.Wy, 1)} / ${f(pb * R, 1)} MPa`,
       MEd / (pb * s.Wy * R), ["phibViaMcr"]));
   }
@@ -86,10 +86,10 @@ export function checkMemberDBN(inp: MemberInput): MemberResult {
   if (NEd > 0) {
     if (MEd > 0) {
       const u = NEd / (s.A * R) + MEd / (s.Wy * R);
-      checks.push(mkCheck("strengthNM", CL, "N/(A·R_y·γ_c) + M/(W_x·R_y·γ_c) ≤ 1",
+      checks.push(mkCheck("strengthNM", `${CL}, розд. 10`, "N/(A·R_y·γ_c) + M/(W_x·R_y·γ_c) ≤ 1",
         `${f(NEd / s.A, 1)}/${f(R, 1)} + ${f(MEd / s.Wy, 1)}/${f(R, 1)}`, u, ["nmStabilityTodo"]));
     } else {
-      checks.push(mkCheck("compression", CL, "N / (A·R_y·γ_c) ≤ 1",
+      checks.push(mkCheck("compression", `${CL}, п. 8.1`, "N / (A·R_y·γ_c) ≤ 1",
         `${f(kN(NEd))}·10 / (${f(s.A / 100)}·${f(R, 1)}) = ${f(NEd / s.A, 1)} / ${f(R, 1)} MPa`, NEd / (s.A * R)));
     }
     if (inp.buckling) {
@@ -100,12 +100,12 @@ export function checkMemberDBN(inp: MemberInput): MemberResult {
         const lamBar = lam * Math.sqrt(Ry / st.E);
         const phi = phiDBN(lamBar, type);
         const u = NEd / (phi * s.A * R);
-        checks.push(mkCheck(`flexBuckling_${axis === "x" ? "y" : "z"}`, CL, "N / (φ·A·R_y·γ_c) ≤ 1",
+        checks.push(mkCheck(`flexBuckling_${axis === "x" ? "y" : "z"}`, `${CL}, п. 8.1, ф. (8.3)`, "N / (φ·A·R_y·γ_c) ≤ 1",
           `l_ef = ${f(Lcr / 1000)} m; λ_${axis} = ${f(lam, 1)}; λ̄ = ${f(lamBar, 3)}; type ${type}; φ = ${f(phi, 3)}; ${f(kN(NEd))} / ${f(kN(phi * s.A * R))}`,
           u, MEd > 0 ? ["nmStabilityTodo"] : undefined));
         const alpha = Math.max(0.5, u);
         const lamU = 180 - 60 * alpha;
-        checks.push(mkCheck(`slenderness_${axis === "x" ? "y" : "z"}`, CL, "λ ≤ λ_u = 180 − 60α",
+        checks.push(mkCheck(`slenderness_${axis === "x" ? "y" : "z"}`, `${CL}, п. 13.4`, "λ ≤ λ_u = 180 − 60α",
           `${f(lam, 1)} ≤ ${f(lamU, 1)}`, lam / lamU));
       }
     }
