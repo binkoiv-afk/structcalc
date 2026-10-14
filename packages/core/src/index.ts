@@ -18,3 +18,4 @@ export * from "./connections/welds";
 export * from "./connections/anchors";
 export * from "./catalog/custom";
 export * from "./geometry/generator";
+export * from "./joints/basePlate";

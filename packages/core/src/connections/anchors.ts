@@ -319,7 +319,9 @@ export function checkAnchors(i: AnchorInput): ConnResult & { forces: { x: number
 
   // ---------- Розколювання ----------
   const ccrSp = i.ccrSp ?? (i.type === "headed" ? 1.5 * i.hef : 2 * i.hef);
-  const hmin = i.hmin ?? Math.max(100, 2 * i.hef);
+  // закладні: h ≥ h_ef + головка + захисний шар (≈ h_ef + 100); хімічні (типово за ETA): h_ef + max(30; 2d₀), не менше 100;
+  // механічні: 2h_ef
+  const hmin = i.hmin ?? (i.type === "headed" ? i.hef + 100 : i.type === "bonded" ? Math.max(100, i.hef + Math.max(30, 2 * (i.d + 2))) : Math.max(100, 2 * i.hef));
   if (i.h < hmin) checks.push(mkCheck("anchorHmin", `${CL}, 7.2.1.7 (ETA)`, "h ≥ h_min", `${i.h} ≥ ${f(hmin, 0)} mm`, hmin / i.h, ["fromETA"]));
   if (NEdG > 0 && tIdx.length && !i.splitReinf) {
     const cmin = Math.min(...allEdges);

@@ -8,7 +8,7 @@ export function utilState(u: number): "ok" | "warn" | "fail" {
   return u > 0.9 ? "warn" : "ok";
 }
 
-export const pct = (u: number) => (Number.isFinite(u) ? `${Math.round(u * 100)}%` : "—");
+export const pct = (u: number) => (Number.isFinite(u) ? `${Math.round(u * 100)}%` : u === Infinity ? "∞" : "—");
 
 export function UtilBar({ u }: { u: number }) {
   const w = Number.isFinite(u) ? Math.min(u, 1.25) / 1.25 : 1;

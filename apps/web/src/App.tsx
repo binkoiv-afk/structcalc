@@ -8,14 +8,15 @@ import { ColumnModule, ColumnState, initialColumn } from "./ColumnModule";
 import { SectionModule, SectionState, initialSection } from "./SectionModule";
 import { ConnectionsModule, ConnKind, ConnState, initialConn, pickKind } from "./ConnectionsModule";
 import { CollectorState, initialCollector } from "./LoadCollector";
+import { initialNode, NodeModule, NodeState } from "./NodeModule";
 
 interface AppState {
   lang: Lang; code: CodeId; screen: Screen;
-  beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState; conn: ConnState; gen: GenState; lib: LibState;
+  beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState; conn: ConnState; gen: GenState; lib: LibState; node: NodeState;
 }
 
 const KEY = "structcalc.v2";
-const initial: AppState = { lang: "uk", code: "DBN", screen: "home", beam: initialBeam, column: initialColumn, lc: initialCollector, sec: initialSection, conn: initialConn, gen: initialGen, lib: initialLib };
+const initial: AppState = { lang: "uk", code: "DBN", screen: "home", beam: initialBeam, column: initialColumn, lc: initialCollector, sec: initialSection, conn: initialConn, gen: initialGen, lib: initialLib, node: initialNode };
 
 function loadState(): AppState {
   try {
@@ -24,7 +25,7 @@ function loadState(): AppState {
       const o = JSON.parse(raw);
       return {
         ...initial, ...o, screen: o.screen === "loads" ? "home" : o.screen, beam: { ...initialBeam, ...o.beam }, column: { ...initialColumn, ...o.column },
-        lc: { ...initialCollector, ...o.lc }, sec: { ...initialSection, ...o.sec }, conn: { ...initialConn, ...o.conn }, gen: { ...initialGen, ...o.gen }, lib: { ...initialLib, ...o.lib },
+        lc: { ...initialCollector, ...o.lc }, sec: { ...initialSection, ...o.sec }, conn: { ...initialConn, ...o.conn }, gen: { ...initialGen, ...o.gen }, lib: { ...initialLib, ...o.lib }, node: { ...initialNode, ...o.node },
       };
     }
     const old = localStorage.getItem("structcalc.beam"); // версия 0.1
@@ -73,7 +74,7 @@ export function App() {
           {s.screen !== "home" && (
             <>
               <span className="crumb-sep">/</span>
-              <span className="module">{t(`mod_${s.screen}`)}{s.screen === "connection" && s.conn.kind ? ` · ${t(`conn_${s.conn.kind}`)}` : ""}</span>
+              <span className="module">{t(`mod_${s.screen}`)}{s.screen === "connection" && s.conn.kind ? ` · ${t(`conn_${s.conn.kind}`)}` : ""}{s.screen === "node" && s.node.tmpl ? ` · ${t(`nt_${s.node.tmpl}`)}` : ""}</span>
             </>
           )}
         </div>
@@ -97,6 +98,7 @@ export function App() {
       )}
       {s.screen === "column" && <ColumnModule code={s.code} s={column} set={(p) => set({ column: { ...s.column, ...p } })} t={t} />}
       {s.screen === "connection" && <ConnectionsModule code={s.code} s={s.conn} set={(p) => set({ conn: { ...s.conn, ...p } })} t={t} />}
+      {s.screen === "node" && <NodeModule code={s.code} s={{ ...s.node, family: okFam(s.node.family, "HEB"), pSteel: okSteel(s.node.pSteel), plSteel: okSteel(s.node.plSteel) }} set={(p) => set({ node: { ...s.node, ...p } })} t={t} />}
       {s.screen === "generator" && <GeneratorModule code={s.code} s={s.gen} set={(p) => set({ gen: { ...s.gen, ...p } })} lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
       {s.screen === "library" && <LibraryModule lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
       {s.screen === "section" && <SectionModule code={s.code} s={sec} set={(p) => set({ sec: { ...s.sec, ...p } })} t={t} />}
