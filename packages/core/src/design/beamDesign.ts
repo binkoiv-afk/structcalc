@@ -5,7 +5,7 @@ import { analyzeBeam, BeamLoad, BeamResult, SupportType } from "../analysis/beam
 import { steel } from "../catalog/materials";
 import { familySections } from "../catalog/profiles";
 import type { Section } from "../geometry/sections";
-import { checkMemberDBN } from "../codes/dbn198";
+import { checkMemberDBN, deflectionLimitDSTU, PsiCase } from "../codes/dbn198";
 import { checkMemberEN } from "../codes/en1993";
 import type { CodeId, MemberResult } from "../codes/types";
 
@@ -26,7 +26,17 @@ export interface BeamDesignInput {
   gammaG: number;
   gammaQ: number;
   gammaC?: number;
-  ltb: { restrained: boolean; loadAt: "top" | "center" | "bottom"; /** м; по умолчанию — наибольший пролет */ Lcr?: number };
+  /** ДБН: коэффициент надежности по ответственности γn */
+  gammaN?: number;
+  ltb: {
+    restrained: boolean;
+    loadAt: "top" | "center" | "bottom";
+    /** число закреплений сжатого пояса в пролете: 0, 1 (в середине), 2 (два и более) */
+    restraints?: 0 | 1 | 2;
+    /** м; по умолчанию — пролет между закреплениями */
+    Lcr?: number;
+  };
+  /** знаменатель n предельного прогиба l/n; 0 — по норме (ДСТУ Б В.1.2-3 для ДБН, l/250 для EN) */
   deflectionLimit: number;
   /** осевая сжимающая сила, кН (расчетная), и расчетные длины, м */
   axial?: { NEd: number; Lcr_y: number; Lcr_z: number };
@@ -90,19 +100,33 @@ export function designBeam(inp: BeamDesignInput, section: Section): BeamDesignRe
     if (m > cm) { cm = m; crit = i; }
   });
   const isCant = inp.supports[crit] === "free" || inp.supports[crit + 1] === "free";
-  const LcrLT = inp.ltb.Lcr != null ? inp.ltb.Lcr * 1000 : isCant ? 2 * spans[crit] : spans[crit];
+  const nRes = inp.ltb.restraints ?? 0;
+  const LcrLT = inp.ltb.Lcr != null && inp.ltb.Lcr > 0
+    ? inp.ltb.Lcr * 1000
+    : isCant ? (inp.code === "DBN" ? spans[crit] : 2 * spans[crit]) : spans[crit] / (nRes + 1);
   const C1 = isCant ? 1 : c1FromDiagram(uls.x, uls.M, bounds[crit], bounds[crit + 1]);
   const hasUdl = all.some((l) => l.type === "udl");
   const C2 = hasUdl ? 0.454 : 0.63;
+  const psiCase: PsiCase = {
+    cantilever: isCant,
+    load: hasUdl ? "uniform" : "point",
+    flange: isCant
+      ? (inp.ltb.loadAt === "bottom" ? "compressed" : "tension")
+      : (inp.ltb.loadAt === "bottom" ? "tension" : "compressed"),
+    restraints: isCant ? 0 : nRes,
+  };
 
-  const worst = sls.spanDeflections.reduce((a, b) => (Math.abs(b.w) / b.Lref > Math.abs(a.w) / a.Lref ? b : a));
+  const limitFor = (Lref: number) =>
+    inp.deflectionLimit > 0 ? inp.deflectionLimit : inp.code === "DBN" ? deflectionLimitDSTU(Lref / 1000) : 250;
+  const worst = sls.spanDeflections.reduce((a, b) =>
+    Math.abs(b.w) * limitFor(b.Lref) / b.Lref > Math.abs(a.w) * limitFor(a.Lref) / a.Lref ? b : a);
   const MEd = Math.max(Math.abs(uls.Mmax), Math.abs(uls.Mmin));
   const memberInput = {
-    code: inp.code, section, steel: inp.steel, gammaC: inp.gammaC,
+    code: inp.code, section, steel: inp.steel, gammaC: inp.gammaC, gammaN: inp.gammaN,
     MEd, VEd: uls.Vabs, NEd: inp.axial ? inp.axial.NEd * 1000 : 0,
-    ltb: { restrained: inp.ltb.restrained, Lcr: LcrLT, C1, C2, loadAt: inp.ltb.loadAt },
+    ltb: { restrained: inp.ltb.restrained, Lcr: LcrLT, C1, C2, loadAt: inp.ltb.loadAt, dbn: psiCase },
     buckling: inp.axial ? { Lcr_y: inp.axial.Lcr_y * 1000, Lcr_z: inp.axial.Lcr_z * 1000 } : undefined,
-    deflection: { w: worst.w, Lref: worst.Lref, limit: inp.deflectionLimit },
+    deflection: { w: worst.w, Lref: worst.Lref, limit: limitFor(worst.Lref) },
   };
   const member = inp.code === "EN" ? checkMemberEN(memberInput) : checkMemberDBN(memberInput);
   return { section, uls, sls, member, C1, C2, LcrLT };

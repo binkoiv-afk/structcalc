@@ -32,6 +32,8 @@ export interface MemberInput {
   steel: string;
   /** ДБН: коэффициент условий работы γc */
   gammaC?: number;
+  /** ДБН: коэффициент надежности по ответственности γn */
+  gammaN?: number;
   /** EN: частные коэффициенты */
   gammaM0?: number;
   gammaM1?: number;
@@ -48,6 +50,8 @@ export interface MemberInput {
     C2: number;
     /** точка приложения нагрузки: верхний пояс / центр / нижний пояс */
     loadAt: "top" | "center" | "bottom";
+    /** ДБН, прил. Н: расчетный случай для коэффициента ψ */
+    dbn?: import("./dbn198").PsiCase;
   };
   /** расчетные длины при продольном изгибе, мм */
   buckling?: { Lcr_y: number; Lcr_z: number };

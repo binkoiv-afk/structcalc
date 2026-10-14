@@ -7,9 +7,13 @@ export interface SteelGrade {
   code: "DBN" | "EN";
   E: number; // МПа
   G: number; // МПа
-  /** расчетное сопротивление Ry (ДБН) или предел текучести fy (EN), МПа, по толщине t (мм) */
+  /** характеристический опор Ryn (ДБН) или fy (EN), МПа, по толщине t (мм) */
+  yieldChar: (t: number) => number;
+  /** коэффициент надежности по материалу γm (ДБН, табл. 7.2); для EN = 1 */
+  gammaM: number;
+  /** расчетное сопротивление Ry = Ryn/γm (ДБН, табл. 7.1) или fy (EN) */
   strength: (t: number) => number;
-  /** временное сопротивление: Run (ДБН) или fu (EN) */
+  /** временное сопротивление Run (ДБН) или fu (EN) */
   ultimate: (t: number) => number;
 }
 
@@ -17,18 +21,30 @@ const E = 210000, G = 81000;
 // ДБН В.2.6-198: E = 2.06·10⁵ МПа, G = 0.79·10⁵ МПа
 const Ed = 206000, Gd = 79000;
 
+function dbn(id: string, gammaM: number, ryn: (t: number) => number, run: (t: number) => number): SteelGrade {
+  return { id, code: "DBN", E: Ed, G: Gd, yieldChar: ryn, gammaM, strength: (t) => ryn(t) / gammaM, ultimate: run };
+}
+function en(id: string, fy16: number, fy40: number, fu: number): SteelGrade {
+  const fy = (t: number) => (t <= 16 ? fy16 : fy40);
+  return { id, code: "EN", E, G, yieldChar: fy, gammaM: 1, strength: fy, ultimate: () => fu };
+}
+
+// ДБН: Ry = Ryn/γm (табл. 7.1), γm = 1.025 для классов по ДСТУ 8539, 1.05 — прочий прокат (табл. 7.2).
+// Ryn по толщине (фасонный прокат, толщина полки) — по ДСТУ 8539, ТРЕБУЕТ СВЕРКИ с текстом стандарта.
 export const STEELS: SteelGrade[] = [
-  // ДБН В.2.6-198:2014, табл. Е.2 (фасонный прокат / трубы) — Ry уже включает γm
-  { id: "C235", code: "DBN", E: Ed, G: Gd, strength: (t) => (t <= 20 ? 230 : 220), ultimate: () => 350 },
-  { id: "C245", code: "DBN", E: Ed, G: Gd, strength: (t) => (t <= 20 ? 240 : 230), ultimate: () => 360 },
-  { id: "C255", code: "DBN", E: Ed, G: Gd, strength: (t) => (t <= 10 ? 240 : t <= 20 ? 230 : 220), ultimate: () => 360 },
-  { id: "C345", code: "DBN", E: Ed, G: Gd, strength: (t) => (t <= 10 ? 335 : t <= 20 ? 315 : 300), ultimate: () => 460 },
-  // EN 10025-2 / EN 10219-1, номинальные значения fy, fu
-  { id: "S235", code: "EN", E, G, strength: (t) => (t <= 16 ? 235 : 225), ultimate: () => 360 },
-  { id: "S275", code: "EN", E, G, strength: (t) => (t <= 16 ? 275 : 265), ultimate: () => 430 },
-  { id: "S355", code: "EN", E, G, strength: (t) => (t <= 16 ? 355 : 345), ultimate: () => 490 },
-  { id: "S420", code: "EN", E, G, strength: (t) => (t <= 16 ? 420 : 400), ultimate: () => 520 },
-  { id: "S460", code: "EN", E, G, strength: (t) => (t <= 16 ? 460 : 440), ultimate: () => 540 },
+  dbn("C235", 1.025, (t) => (t <= 20 ? 235 : 225), () => 360),
+  dbn("C245", 1.025, (t) => (t <= 20 ? 245 : 235), () => 370),
+  dbn("C255", 1.025, (t) => (t <= 10 ? 255 : t <= 20 ? 245 : 235), (t) => (t <= 10 ? 380 : 370)),
+  dbn("C345", 1.025, (t) => (t <= 10 ? 345 : t <= 20 ? 325 : 305), (t) => (t <= 10 ? 490 : t <= 20 ? 470 : 460)),
+  // Стали EN по ДСТУ EN 10025/10219 при расчете по ДБН (табл. Г.5), γm = 1.05
+  dbn("C275 (S275)", 1.05, (t) => (t <= 16 ? 275 : 265), () => 410),
+  dbn("C355 (S355)", 1.05, (t) => (t <= 16 ? 355 : 345), () => 470),
+  // EN 10025-2 / EN 10219-1, номинальные fy, fu
+  en("S235", 235, 225, 360),
+  en("S275", 275, 265, 430),
+  en("S355", 355, 345, 490),
+  en("S420", 420, 400, 520),
+  en("S460", 460, 440, 540),
 ];
 
 export function steel(id: string): SteelGrade {

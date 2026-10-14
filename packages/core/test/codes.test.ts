@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  checkMemberEN, checkMemberDBN, classifyEN, findSection, mcrDoublySymmetric, phiDBN, phiB, selectBeam, designBeam, DEFAULT_FACTORS,
+  checkMemberEN, checkMemberDBN, classifyEN, psiDBN, deflectionLimitDSTU, steel, phiDBNFormula, findSection, mcrDoublySymmetric, phiDBN, phiB, selectBeam, designBeam, DEFAULT_FACTORS,
 } from "../src";
 
 const near = (a: number, b: number, tol = 0.01) => expect(Math.abs(a - b) / Math.abs(b)).toBeLessThan(tol);
@@ -50,9 +50,37 @@ describe("EN 1993-1-1", () => {
 });
 
 describe("ДБН В.2.6-198", () => {
-  it("φ при λ̄ = 3.17, тип b ≈ 0.608", () => {
-    near(phiDBN(3.17, "b"), 0.608);
+  it("φ совпадает с табл. Ж.1 (до 0.002)", () => {
+    // λ̄: [a, b, c] ×1000 из табл. Ж.1
+    const table: [number, number[]][] = [
+      [0.6, [994, 986, 950]], [1.0, [968, 948, 901]], [2.0, [877, 826, 744]], [3.0, [704, 643, 562]],
+      [3.8, [530, 487, 430]], [4.4, [393, 392, 351]], [5.0, [304, 304, 289]], [5.8, [226, 226, 226]],
+      [8.0, [119, 119, 119]], [10.0, [76, 76, 76]],
+    ];
+    for (const [lam, vals] of table) {
+      (["a", "b", "c"] as const).forEach((tp, k) => {
+        expect(Math.abs(phiDBN(lam, tp) - vals[k] / 1000)).toBeLessThan(0.0025);
+      });
+    }
     expect(phiDBN(0.3, "a")).toBe(1);
+    near(phiDBN(3.1, "b"), (643 + 602) / 2000);
+    near(phiDBNFormula(3.0, "b"), 0.643, 0.003);
+  });
+  it("ψ по табл. Н.1/Н.2", () => {
+    near(psiDBN(10, { cantilever: false, load: "uniform", flange: "compressed", restraints: 0 }), 1.6 + 0.8);
+    near(psiDBN(100, { cantilever: false, load: "point", flange: "tension", restraints: 0 }), 6.6 + 5.3 - 0.45);
+    near(psiDBN(10, { cantilever: false, load: "uniform", flange: "tension", restraints: 1 }), 1.3 * (2.25 + 0.7));
+    near(psiDBN(10, { cantilever: true, load: "point", flange: "tension", restraints: 0 }), 1.0 + 1.6);
+  });
+  it("предельный прогиб по ДСТУ Б В.1.2-3, табл. 1", () => {
+    expect(deflectionLimitDSTU(0.5)).toBe(120);
+    near(deflectionLimitDSTU(3), 150);
+    near(deflectionLimitDSTU(6), 200);
+    near(deflectionLimitDSTU(24), 250);
+    expect(deflectionLimitDSTU(40)).toBe(300);
+  });
+  it("Ry = Ryn/γm: С245, t ≤ 20 → 239.0 МПа", () => {
+    near(steel("C245").strength(10), 239.02, 1e-4);
   });
   it("φb: переход при φ1 > 0.85", () => {
     expect(phiB(0.5)).toBe(0.5);
@@ -61,7 +89,7 @@ describe("ДБН В.2.6-198", () => {
   });
   it("прочность при изгибе: σ = M/W", () => {
     const s = findSection("I_GOST8239", "I 20")!;
-    const r = checkMemberDBN({ code: "DBN", section: s, steel: "C245", MEd: s.Wy * 240, gammaC: 1 });
+    const r = checkMemberDBN({ code: "DBN", section: s, steel: "C245", MEd: s.Wy * (245 / 1.025), gammaC: 1 });
     near(r.checks.find((c) => c.key === "bending")!.util, 1.0, 1e-6);
   });
   it("балка 6 м по ДБН проходит/не проходит согласованно с EN", () => {
