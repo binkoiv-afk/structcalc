@@ -19,6 +19,10 @@ export interface SteelGrade {
   ultimate: (t: number, product?: Product) => number;
   /** источник значений */
   source: string;
+  /** пользовательский материал */
+  custom?: boolean;
+  /** плотность, кг/м³ (по умолчанию 7850) */
+  density?: number;
 }
 
 const E = 210000, G = 81000;

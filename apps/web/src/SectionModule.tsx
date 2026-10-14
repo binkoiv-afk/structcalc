@@ -30,7 +30,7 @@ export function SectionModule({ code, s, set, t }: { code: CodeId; s: SectionSta
         <fieldset>
           <legend><span className="step">1</span>{t("family")}</legend>
           <select id="sfam" value={s.family} onChange={(e) => set({ family: e.target.value, size: familySections(e.target.value)[0].name })}>
-            {FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.id.replace("_", " ")} · {f.standard}</option>)}
+            {FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.id === "CUSTOM" ? t("fam_CUSTOM") : `${f.id.replace("_", " ")} · ${f.standard}`}</option>)}
           </select>
         </fieldset>
         <fieldset>

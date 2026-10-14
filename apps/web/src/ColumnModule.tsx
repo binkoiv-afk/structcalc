@@ -101,7 +101,7 @@ export function ColumnModule({ code, s, set, t }: { code: CodeId; s: ColumnState
             </label>
             <label className="wide"><span className="lbl">{t("family")}</span>
               <select id="cfam" value={s.family} onChange={(e) => set({ family: e.target.value, size: familySections(e.target.value)[0].name })}>
-                {FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.id.replace("_", " ")} · {f.standard}</option>)}
+                {FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.id === "CUSTOM" ? t("fam_CUSTOM") : `${f.id.replace("_", " ")} · ${f.standard}`}</option>)}
               </select>
             </label>
             {s.mode === "check" && (

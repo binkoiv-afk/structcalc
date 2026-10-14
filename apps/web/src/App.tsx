@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { CodeId, DEFAULT_FACTORS } from "@structcalc/core";
+import { CodeId, DEFAULT_FACTORS, FAMILIES, setCustomMaterials, setCustomSections, STEELS } from "@structcalc/core";
+import { GeneratorModule, GenState, initialGen, initialLib, LibraryModule, LibState } from "./GeneratorModule";
 import { Lang, LANGS, makeT } from "./i18n";
 import { Home, Screen } from "./Home";
 import { BeamModule, BeamState, initialBeam } from "./BeamModule";
@@ -10,11 +11,11 @@ import { CollectorState, initialCollector } from "./LoadCollector";
 
 interface AppState {
   lang: Lang; code: CodeId; screen: Screen;
-  beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState; conn: ConnState;
+  beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState; conn: ConnState; gen: GenState; lib: LibState;
 }
 
 const KEY = "structcalc.v2";
-const initial: AppState = { lang: "uk", code: "DBN", screen: "home", beam: initialBeam, column: initialColumn, lc: initialCollector, sec: initialSection, conn: initialConn };
+const initial: AppState = { lang: "uk", code: "DBN", screen: "home", beam: initialBeam, column: initialColumn, lc: initialCollector, sec: initialSection, conn: initialConn, gen: initialGen, lib: initialLib };
 
 function loadState(): AppState {
   try {
@@ -23,7 +24,7 @@ function loadState(): AppState {
       const o = JSON.parse(raw);
       return {
         ...initial, ...o, screen: o.screen === "loads" ? "home" : o.screen, beam: { ...initialBeam, ...o.beam }, column: { ...initialColumn, ...o.column },
-        lc: { ...initialCollector, ...o.lc }, sec: { ...initialSection, ...o.sec }, conn: { ...initialConn, ...o.conn },
+        lc: { ...initialCollector, ...o.lc }, sec: { ...initialSection, ...o.sec }, conn: { ...initialConn, ...o.conn }, gen: { ...initialGen, ...o.gen }, lib: { ...initialLib, ...o.lib },
       };
     }
     const old = localStorage.getItem("structcalc.beam"); // версия 0.1
@@ -43,6 +44,15 @@ export function App() {
     return n;
   });
   const t = makeT(s.lang);
+  // свої матеріали і перерізи — у каталоги ядра до розрахунку модулів
+  setCustomMaterials(s.lib.materials);
+  setCustomSections(s.lib.sections);
+  // якщо свій матеріал / переріз видалено — повертаємося до типових
+  const okSteel = (id: string) => (STEELS.some((x) => x.id === id && x.code === s.code) ? id : s.code === "DBN" ? "C245" : "S235");
+  const okFam = (id: string, def: string) => (FAMILIES.some((f) => f.id === id) ? id : def);
+  const beam = { ...s.beam, steel: okSteel(s.beam.steel), family: okFam(s.beam.family, "IPE") };
+  const column = { ...s.column, steel: okSteel(s.column.steel), family: okFam(s.column.family, "HEB") };
+  const sec = { ...s.sec, family: okFam(s.sec.family, "IPE") };
   const go = (screen: Screen, conn?: ConnKind) => {
     set(conn ? { screen, conn: { ...s.conn, ...pickKind(s.conn, conn) } } : { screen });
     window.scrollTo(0, 0);
@@ -82,12 +92,14 @@ export function App() {
 
       {s.screen === "home" && <Home go={go} t={t} />}
       {s.screen === "beam" && (
-        <BeamModule code={s.code} s={s.beam} set={(p) => set({ beam: { ...s.beam, ...p } })}
+        <BeamModule code={s.code} s={beam} set={(p) => set({ beam: { ...s.beam, ...p } })}
           lc={s.lc} setLc={(p) => set({ lc: { ...s.lc, ...p } })} t={t} />
       )}
-      {s.screen === "column" && <ColumnModule code={s.code} s={s.column} set={(p) => set({ column: { ...s.column, ...p } })} t={t} />}
+      {s.screen === "column" && <ColumnModule code={s.code} s={column} set={(p) => set({ column: { ...s.column, ...p } })} t={t} />}
       {s.screen === "connection" && <ConnectionsModule code={s.code} s={s.conn} set={(p) => set({ conn: { ...s.conn, ...p } })} t={t} />}
-      {s.screen === "section" && <SectionModule code={s.code} s={s.sec} set={(p) => set({ sec: { ...s.sec, ...p } })} t={t} />}
+      {s.screen === "generator" && <GeneratorModule code={s.code} s={s.gen} set={(p) => set({ gen: { ...s.gen, ...p } })} lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
+      {s.screen === "library" && <LibraryModule lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
+      {s.screen === "section" && <SectionModule code={s.code} s={sec} set={(p) => set({ sec: { ...s.sec, ...p } })} t={t} />}
     </div>
   );
 }

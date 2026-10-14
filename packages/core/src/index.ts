@@ -16,3 +16,5 @@ export * from "./loads/combinations";
 export * from "./connections/bolts";
 export * from "./connections/welds";
 export * from "./connections/anchors";
+export * from "./catalog/custom";
+export * from "./geometry/generator";

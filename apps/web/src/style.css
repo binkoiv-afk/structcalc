@@ -288,3 +288,25 @@ label.chk input { width: auto; }
 .home-hint { margin: -4px 0 10px; color: var(--muted); font-size: 13px; }
 .cards .card.compact { padding: 12px 14px; }
 .cards .card.compact .card-icon { width: 30px; height: 30px; }
+
+/* Генератор перерізів і бібліотека */
+.shape-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; }
+.shape-chip { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); color: var(--ink); cursor: pointer; font-size: 11px; line-height: 1.2; text-align: center; }
+.shape-chip svg { width: 34px; height: 34px; fill: none; stroke: var(--accent); stroke-width: 2.2; }
+.shape-chip.on { border-color: var(--accent); background: var(--accent-soft); }
+.shape-chip:hover { border-color: var(--accent); }
+.section-drawing.gen { max-width: 300px; }
+.sd-principal { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 6 3; }
+.sd-lbl.principal { fill: var(--warn); }
+.sd-cg { fill: var(--fail); }
+.save-row { display: flex; gap: 8px; }
+.save-row input { flex: 1; min-width: 0; }
+.wide-inputs { max-width: 920px; width: 100%; margin: 0 auto; }
+.lib-table { display: flex; flex-direction: column; gap: 6px; overflow-x: auto; }
+.lib-row { display: grid; grid-template-columns: minmax(140px, 2fr) repeat(5, minmax(70px, 1fr)) 36px; gap: 6px; align-items: center; min-width: 640px; }
+.lib-row.head span { font-size: 12px; color: var(--muted); }
+.lib-add { display: flex; flex-wrap: wrap; gap: 6px; }
+.lib-sec { display: flex; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.lib-sec .hint { flex: 1; margin: 0; }
+main.library { max-width: 980px; margin: 0 auto; padding: 16px; }
+main.library .inputs { display: flex; flex-direction: column; gap: 14px; }

@@ -87,6 +87,10 @@ export function familySections(id: string): Section[] {
   return cache.get(id)!;
 }
 
+export function resetFamilyCache(id: string) {
+  cache.delete(id);
+}
+
 export function findSection(family: string, name: string): Section | undefined {
   return familySections(family).find((s) => s.name === name);
 }

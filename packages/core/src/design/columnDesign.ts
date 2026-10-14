@@ -1,6 +1,7 @@
 // Расчет и подбор стального стержня на сжатие (центральное и внецентренное).
 // Ввод в инженерных единицах: м, кН, кН·м; усилия — расчетные.
 
+import { steel } from "../catalog/materials";
 import { familySections } from "../catalog/profiles";
 import type { Section } from "../geometry/sections";
 import { checkMemberDBN } from "../codes/dbn198";
@@ -41,7 +42,9 @@ export interface ColumnDesignResult {
   Lcr_z: number; // мм
 }
 
-export function designColumn(inp: ColumnDesignInput, section: Section): ColumnDesignResult {
+export function designColumn(inp: ColumnDesignInput, sec0: Section): ColumnDesignResult {
+  const dens = steel(inp.steel).density;
+  const section = dens && dens !== 7850 ? { ...sec0, mass: (sec0.mass * dens) / 7850 } : sec0;
   const Lcr_y = inp.muY * inp.L * 1000;
   const Lcr_z = inp.muZ * (inp.Lz && inp.Lz > 0 ? inp.Lz : inp.L) * 1000;
   const M = Math.abs(inp.M) * 1e6;

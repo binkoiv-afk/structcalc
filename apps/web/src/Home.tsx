@@ -1,7 +1,7 @@
 // Стартовый экран: сначала выбирается тип расчета, затем открывается только нужный ввод.
 import { CONN_ICONS, ConnKind, KINDS } from "./ConnectionsModule";
 
-export type Screen = "home" | "beam" | "column" | "section" | "connection";
+export type Screen = "home" | "beam" | "column" | "section" | "connection" | "generator" | "library";
 
 const ICONS: Record<string, JSX.Element> = {
   beam: <><path d="M6 22h36" strokeWidth="3" /><path d="M6 22l-3 6h6zM42 22l-3 6h6z" /><path d="M10 10v8M17 10v8M24 10v8M31 10v8M38 10v8" /></>,
@@ -11,6 +11,8 @@ const ICONS: Record<string, JSX.Element> = {
   truss: <><path d="M4 34h40M8 34l8-14h16l8 14M16 20l4 14 4-14 4 14 4-14" strokeWidth="2" /></>,
   basePlate: <><path d="M24 4v28" strokeWidth="4" /><path d="M10 32h28" strokeWidth="3" /><path d="M16 32v12M32 32v12" strokeWidth="2" /><path d="M4 38h40" strokeDasharray="2 3" /></>,
   joints: <><path d="M10 4v40" strokeWidth="4" /><path d="M10 18h32M10 30h32" strokeWidth="3" /><circle cx="16" cy="24" r="2" /></>,
+  generator: <><path d="M8 8h14v6h-4v20h4v6H8v-6h4V14H8z" strokeWidth="2" /><path d="M30 16h12M36 10v12M30 34h12" strokeWidth="2.5" /></>,
+  library: <><path d="M8 8v32M16 8v32M24 10l8 30M36 8v32" strokeWidth="3" /></>,
   dynamic: <><path d="M4 24c4-10 8-10 12 0s8 10 12 0 8-10 12 0 4 10 6 6" strokeWidth="2.5" /></>,
   thermal: <><path d="M10 8v32M20 8v32M30 8v32" /><path d="M36 14h8M36 24h8M36 34h8" strokeWidth="2.5" /></>,
   concrete: <><rect x="8" y="12" width="32" height="24" /><circle cx="14" cy="30" r="2" /><circle cx="24" cy="30" r="2" /><circle cx="34" cy="30" r="2" /></>,
@@ -26,7 +28,7 @@ const GROUPS: { key: string; hint?: string; items: Item[] }[] = [
     ...KINDS.map((k) => ({ id: `conn_${k}`, ready: true, conn: k })),
     { id: "basePlate", ready: false }, { id: "joints", ready: false },
   ] },
-  { key: "grp_ref", items: [{ id: "section", ready: true }] },
+  { key: "grp_ref", items: [{ id: "section", ready: true }, { id: "generator", ready: true }, { id: "library", ready: true }] },
   { key: "grp_soon", items: [{ id: "dynamic", ready: false }, { id: "concrete", ready: false }, { id: "timber", ready: false }, { id: "thermal", ready: false }] },
 ];
 

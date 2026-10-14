@@ -124,8 +124,10 @@ function partResult(model: { spans: number[]; supports: SupportType[]; springs?:
   return { ...r, w: r.w.map((v) => v * k), spanDeflections: r.spanDeflections.map((d) => ({ ...d, w: d.w * k })) };
 }
 
-export function designBeam(inp: BeamDesignInput, section: Section): BeamDesignResult {
+export function designBeam(inp: BeamDesignInput, sec0: Section): BeamDesignResult {
   const st = steel(inp.steel);
+  // маса за густиною матеріалу (свої матеріали: алюміній, нержавійка)
+  const section = st.density && st.density !== 7850 ? { ...sec0, mass: (sec0.mass * st.density) / 7850 } : sec0;
   const EI = st.E * section.Iy;
   const spans = inp.spans.map((s) => s * 1000);
   const Ltot = spans.reduce((a, b) => a + b, 0);
