@@ -1,7 +1,7 @@
 // ДБН В.2.6-198:2014 «Сталеві конструкції. Норми проектування» (зі Зміною № 1).
 // Формулы и пункты сверены с текстом норм; см. docs/VERIFICATION.md.
 
-import type { Section } from "../geometry/sections";
+import { productOf, Section } from "../geometry/sections";
 import { steel } from "../catalog/materials";
 import {
   Check, cm3, f, finalize, Intermediate, kN, kNm, maxThickness, mcrDoublySymmetric, MemberInput, MemberResult, mkCheck,
@@ -108,8 +108,9 @@ export function checkMemberDBN(inp: MemberInput): MemberResult {
   const s = inp.section;
   const st = steel(inp.steel);
   const t = maxThickness(s);
-  const Ryn = st.yieldChar(t);
-  const Ry = st.strength(t);
+  const product = productOf(s);
+  const Ryn = st.yieldChar(t, product);
+  const Ry = st.strength(t, product);
   const Rs = 0.58 * Ry;
   const gc = inp.gammaC ?? 1.0;
   const gn = inp.gammaN ?? 1.0;
@@ -123,6 +124,10 @@ export function checkMemberDBN(inp: MemberInput): MemberResult {
     { key: "gc", symbol: "γ_c", value: gc, unit: "" },
     { key: "gn", symbol: "γ_n", value: gn, unit: "" },
   ];
+  if (!Number.isFinite(Ry)) {
+    checks.push(mkCheck("material", st.source, "R_yn(t)", `t = ${f(t, 1)} mm`, NaN, ["steelNotSupplied"]));
+    return finalize(checks, values);
+  }
   const R = Ry * gc;
   const gnTxt = gn !== 1 ? `·${gn}` : "";
 

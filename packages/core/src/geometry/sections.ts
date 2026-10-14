@@ -242,3 +242,8 @@ export function rectSection(name: string, h: number, b: number): Section {
   s.Avz = s.A;
   return s;
 }
+
+/** Вид проката для выбора характеристик стали: горячекатаный фасон или лист/гнутый профиль. */
+export function productOf(s: Section): "sheet" | "shaped" {
+  return s.fabrication === "hot" && (s.kind === "I" || s.kind === "C" || s.kind === "L") ? "shaped" : "sheet";
+}

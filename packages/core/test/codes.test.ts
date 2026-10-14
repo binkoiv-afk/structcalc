@@ -79,8 +79,18 @@ describe("ДБН В.2.6-198", () => {
     near(deflectionLimitDSTU(24), 250);
     expect(deflectionLimitDSTU(40)).toBe(300);
   });
-  it("Ry = Ryn/γm: С245, t ≤ 20 → 239.0 МПа", () => {
-    near(steel("C245").strength(10), 239.02, 1e-4);
+  it("Ry = Ryn/γm по ДСТУ 8539: фасон и лист", () => {
+    near(steel("C245").strength(10, "shaped"), 245 / 1.025, 1e-6);
+    near(steel("C245").strength(10, "sheet"), 235 / 1.025, 1e-6);
+    near(steel("C345").yieldChar(15, "shaped"), 325, 1e-9);
+    near(steel("C255").yieldChar(10, "shaped"), 255, 1e-9);
+    near(steel("C255").yieldChar(10.5, "shaped"), 245, 1e-9);
+    expect(Number.isNaN(steel("C235").yieldChar(8, "shaped"))).toBe(true);
+  });
+  it("сталь не поставляется для толщины → проверка не выполняется", () => {
+    const r = checkMemberDBN({ code: "DBN", section: findSection("IPE", "IPE 300")!, steel: "C235", MEd: 1e6 });
+    expect(r.ok).toBe(false);
+    expect(r.checks[0].key).toBe("material");
   });
   it("φb: переход при φ1 > 0.85", () => {
     expect(phiB(0.5)).toBe(0.5);

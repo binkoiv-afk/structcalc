@@ -5,6 +5,7 @@ export type Lang = (typeof LANGS)[number];
 type Dict = Record<string, string>;
 
 const uk: Dict = {
+  chk_material: "Сталь", note_steelNotSupplied: "Прокат цієї сталі такої товщини не постачається за стандартом — оберіть іншу сталь.",
   gammaN: "γn (відповідальність)", restraintsN: "Закріплення стиснутого поясу в прольоті", rest_0: "немає", rest_1: "одне посередині", rest_2: "два і більше (рівні ділянки)",
   deflLimit: "Граничний прогин l/ (0 — за ДСТУ Б В.1.2-3)", note_psiTableH: "φb за дод. Н (коефіцієнт ψ за табл. Н.1/Н.2).", note_curveTypeCheck: "Тип кривої стійкості прийнято за рис. Ж.1 (перевірити для складених перерізів).",
   tab_results: "Результати", tab_report: "Звіт", governing: "Визначальна перевірка", st_ok: "запас", st_warn: "впритул", st_fail: "не проходить",
@@ -50,6 +51,7 @@ const uk: Dict = {
 
 const ru: Dict = {
   ...uk,
+  chk_material: "Сталь", note_steelNotSupplied: "Прокат этой стали такой толщины не поставляется по стандарту — выберите другую сталь.",
   gammaN: "γn (ответственность)", restraintsN: "Закрепления сжатого пояса в пролете", rest_0: "нет", rest_1: "одно посередине", rest_2: "два и более (равные участки)",
   deflLimit: "Предельный прогиб l/ (0 — по ДСТУ Б В.1.2-3)", note_psiTableH: "φb по прил. Н (коэффициент ψ по табл. Н.1/Н.2).", note_curveTypeCheck: "Тип кривой устойчивости принят по рис. Ж.1 (проверить для составных сечений).",
   tab_results: "Результаты", tab_report: "Отчет", governing: "Определяющая проверка", st_ok: "запас", st_warn: "впритык", st_fail: "не проходит",
@@ -95,6 +97,7 @@ const ru: Dict = {
 
 const en: Dict = {
   ...uk,
+  chk_material: "Steel", note_steelNotSupplied: "This steel is not supplied in this thickness per the standard — choose another grade.",
   gammaN: "γn (consequence class)", restraintsN: "Compression flange restraints in span", rest_0: "none", rest_1: "one at midspan", rest_2: "two or more (equal segments)",
   deflLimit: "Deflection limit L/ (0 — code default)", note_psiTableH: "φb per Annex Н (ψ from tables Н.1/Н.2).", note_curveTypeCheck: "Buckling curve type per fig. Ж.1 (check for built-up sections).",
   tab_results: "Results", tab_report: "Report", governing: "Governing check", st_ok: "reserve", st_warn: "tight", st_fail: "fails",
