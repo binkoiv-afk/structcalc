@@ -346,3 +346,18 @@ main.library .inputs { display: flex; flex-direction: column; gap: 14px; }
 .combo-res tr.fail td:last-child { color: var(--fail); font-weight: 600; }
 .combo-res th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; }
 #card-node { border-color: var(--accent); }
+.view-wrap { position: relative; }
+.node-scheme { touch-action: none; user-select: none; }
+.node-scheme .anchor-g { cursor: grab; }
+.node-scheme.dragging, .node-scheme.dragging .anchor-g { cursor: grabbing; }
+.node-scheme .handle { fill: var(--panel); stroke: var(--accent); stroke-width: 2; cursor: move; }
+.dim-chip { cursor: pointer; }
+.dim-bg { fill: var(--panel); stroke: var(--line); stroke-width: 1; }
+.dim-chip:hover .dim-bg { stroke: var(--accent); fill: var(--accent-soft); }
+.dim-txt { font-variant-numeric: tabular-nums; }
+.dim-input { position: absolute; transform: translate(-50%, -50%); width: 78px; padding: 3px 6px; font-size: 13px; border: 2px solid var(--accent); border-radius: 6px; background: var(--panel); color: var(--ink); z-index: 2; }
+.apts { display: flex; flex-direction: column; gap: 4px; }
+.apts-head, .apts-row { display: grid; grid-template-columns: 24px 1fr 1fr 32px; gap: 6px; align-items: center; }
+.apts-head { font-size: 11.5px; color: var(--muted); font-weight: 600; }
+.apts-row input { width: 100%; min-width: 0; padding: 5px 6px; }
+.part-body .seg { justify-self: start; }

@@ -8,13 +8,14 @@ import { steel } from "../catalog/materials";
 import { checkAnchors } from "../connections/anchors";
 import type { AnchorType } from "../connections/anchors";
 import { checkFillet, weldShape } from "../connections/welds";
-import type { WeldProcess } from "../connections/welds";
+import type { WeldProcess, WeldSeg } from "../connections/welds";
 
 export type NodeKind = "base" | "bracket";
 
 /** Профіль, що приходить у вузол: двотавр або прямокутна труба. Для кронштейна потрібні A, Wy, Wz, Avz. */
 export interface NodeProfile {
-  kind: "I" | "RHS";
+  /** CHS: h = b = d, tw = tf = t */
+  kind: "I" | "RHS" | "CHS";
   h: number; b: number; tw: number; tf: number;
   A?: number; Wy?: number; Wz?: number; Avz?: number;
 }
@@ -33,12 +34,15 @@ export interface BasePlateInput {
   lever?: number;
   /** плита: L — вздовж висоти профілю h, B — вздовж ширини b */
   plate: { L: number; B: number; t: number; steel: string };
-  /** ребра по осі стінки за межами полиць (2 шт.) */
-  ribs: { on: boolean; hr: number; tr: number };
+  /** ребра: web — по осі стінки за полицями (2 шт.), tips — по краях полиць (4 шт.; для труби — поперечні 2 шт.).
+   *  on — застаріле, те саме що web */
+  ribs: { web?: boolean; tips?: boolean; on?: boolean; hr: number; tr: number };
   weld: { kf: number; process: WeldProcess; milled: boolean };
   anchors: {
     type: AnchorType; d: number; steel: string; hef: number; dh?: number;
     nx: number; ny: number; sx: number; sy: number;
+    /** довільні координати анкерів від центра плити (x — вздовж L), замість сітки */
+    points?: { x: number; y: number }[];
     NRkp?: number; tauRk?: number;
   };
   /** reinforced — армування обмежує тріщини від розколювання (EN 1992-4, 7.2.1.7(2) b)) */
@@ -85,11 +89,14 @@ function interp(t: [number, number][], x: number) {
 
 export interface PlatePanel { id: string; support: "4" | "3" | "2" | "cant"; a: number; b: number; coef: number; M: number }
 
+const ribFlags = (r: BasePlateInput["ribs"]) => ({ web: !!(r.web ?? r.on), tips: !!r.tips });
+
 /** Згинальні моменти в ділянках плити від рівномірного відпору σ (на 1 мм ширини). */
 export function platePanels(p: NodeProfile, L: number, B: number, ribs: BasePlateInput["ribs"], sigma: number): PlatePanel[] {
   const out: PlatePanel[] = [];
+  const { web, tips } = ribFlags(ribs);
   const add = (id: string, support: PlatePanel["support"], a: number, b: number) => {
-    if (a <= 0 && b <= 0) return;
+    if (a <= 0 || (support !== "cant" && b <= 0)) return;
     let coef: number, M: number;
     if (support === "cant") { coef = 0.5; M = 0.5 * sigma * a * a; }
     else if (support === "4") { const s = Math.min(a, b), l = Math.max(a, b); coef = interp(ALPHA4, l / s); M = coef * sigma * s * s; a = s; b = l; }
@@ -100,15 +107,21 @@ export function platePanels(p: NodeProfile, L: number, B: number, ribs: BasePlat
     }
     out.push({ id, support, a, b, coef, M });
   };
+  const two = (id: string, c: number, w: number) => { const d = Math.hypot(c, w); add(id, "2", d, (c * w) / d); };
   const cL = (L - p.h) / 2, cB = (B - p.b) / 2;
   if (p.kind === "I") add("between", "3", p.h - 2 * p.tf, (p.b - p.tw) / 2);
   else add("inside", "4", p.h - 2 * p.tf, p.b - 2 * p.tw);
+  if (p.kind === "CHS") {
+    if (cL > 0) web ? two("outRib", cL, (B - ribs.tr) / 2) : add("outL", "cant", cL, 0);
+    if (cB > 0) tips ? two("outRibB", cB, (L - ribs.tr) / 2) : add("sideB", "cant", cB, 0);
+    return out;
+  }
   if (cB > 0) add("sideB", "cant", cB, 0);
   if (cL > 0) {
-    if (ribs.on) {
-      const bs = (B - ribs.tr) / 2, d = Math.hypot(cL, bs);
-      add("outRib", "2", d, (cL * bs) / d);
-    } else add("outL", "cant", cL, 0);
+    if (web && tips) add("outRibs3", "3", p.b / 2 - ribs.tr, cL);
+    else if (tips) add("outRibs3", "3", p.b - ribs.tr, cL);
+    else if (web) two("outRib", cL, (B - ribs.tr) / 2);
+    else add("outL", "cant", cL, 0);
   }
   return out;
 }
@@ -144,12 +157,15 @@ function checkCombo(i: BasePlateInput, c: NodeCombo): NodeComboResult {
   if (Ff > 0) values.push({ k: "F_f,Rd = 0.2·N_c", v: `${f(Ff / 1000)} kN` });
 
   // ---------- 2. Анкери + розподіл тиску під плитою ----------
-  const cxe = (cc.Lc - (an.nx - 1) * an.sx) / 2, cye = (cc.Bc - (an.ny - 1) * an.sy) / 2;
-  const edge = (v: number) => (v > 0 && Number.isFinite(v) ? v : Infinity);
+  const apts = anchorPoints(an);
+  const xMin = Math.min(...apts.map((q) => q.x)), xMax = Math.max(...apts.map((q) => q.x));
+  const yMin = Math.min(...apts.map((q) => q.y)), yMax = Math.max(...apts.map((q) => q.y));
+  // бетон центрований по плиті
+  const edge = (v: number) => (Number.isFinite(v) ? Math.max(v, 1) : Infinity);
   const ar = checkAnchors({
     code: i.code, type: an.type, d: an.d, dh: an.dh, hef: an.hef, steel: an.steel, fck: cc.fck, cracked: cc.cracked, h: cc.h,
-    nx: an.nx, ny: an.ny, sx: an.sx, sy: an.sy,
-    cxm: edge(cxe), cxp: edge(cxe), cym: edge(cye), cyp: edge(cye),
+    nx: an.nx, ny: an.ny, sx: an.sx, sy: an.sy, points: apts,
+    cxm: edge(cc.Lc / 2 + xMin), cxp: edge(cc.Lc / 2 - xMax), cym: edge(cc.Bc / 2 + yMin), cyp: edge(cc.Bc / 2 - yMax),
     bx: pl.L, by: pl.B, N: -Nc, My: Ms, Mx: Mw, Vx: Vs * kV, Vy: Vw * kV, T: 0,
     // зсув з плечем, якщо підливка товща за d/2 (EN 1992-4, 6.2.2.3); плита з гайками з двох боків не повертається — α_M = 2
     standoff: cc.grout > an.d / 2 ? cc.grout : 0, alphaM: 2, NRkp: an.NRkp, tauRk: an.tauRk, gammaN: gn, splitReinf: cc.reinforced,
@@ -195,13 +211,22 @@ function checkCombo(i: BasePlateInput, c: NodeCombo): NodeComboResult {
   // ---------- 5. Плита: згин від розтягнутих анкерів (Т-подібний елемент) ----------
   const kf = i.weld.kf;
   const sup: [number, number, number, number][] = [];
-  if (p.kind === "I") {
+  const rf = ribFlags(i.ribs);
+  if (p.kind === "CHS") {
+    // коло — ламаною з 36 відрізків
+    for (let k = 0; k < 36; k++) {
+      const a0 = (k / 36) * 2 * Math.PI, a1 = ((k + 1) / 36) * 2 * Math.PI, r0 = p.h / 2;
+      sup.push([r0 * Math.cos(a0), r0 * Math.sin(a0), r0 * Math.cos(a1), r0 * Math.sin(a1)]);
+    }
+    if (rf.tips) sup.push([0, p.h / 2, 0, pl.B / 2], [0, -p.h / 2, 0, -pl.B / 2]);
+  } else if (p.kind === "I") {
     sup.push([p.h / 2, -p.b / 2, p.h / 2, p.b / 2], [-p.h / 2, -p.b / 2, -p.h / 2, p.b / 2]);
     sup.push([-p.h / 2 + p.tf, p.tw / 2, p.h / 2 - p.tf, p.tw / 2], [-p.h / 2 + p.tf, -p.tw / 2, p.h / 2 - p.tf, -p.tw / 2]);
   } else {
     sup.push([p.h / 2, -p.b / 2, p.h / 2, p.b / 2], [-p.h / 2, -p.b / 2, -p.h / 2, p.b / 2], [-p.h / 2, p.b / 2, p.h / 2, p.b / 2], [-p.h / 2, -p.b / 2, p.h / 2, -p.b / 2]);
   }
-  if (i.ribs.on) sup.push([p.h / 2, 0, pl.L / 2, 0], [-p.h / 2, 0, -pl.L / 2, 0]);
+  if (rf.web) sup.push([p.h / 2, 0, pl.L / 2, 0], [-p.h / 2, 0, -pl.L / 2, 0]);
+  if (rf.tips && p.kind !== "CHS") for (const sy of [-1, 1]) for (const sx of [-1, 1]) sup.push([sx * p.h / 2, sy * p.b / 2, sx * pl.L / 2, sy * p.b / 2]);
   let worstT: { u: number; s: string } | null = null;
   for (const a of ar.forces) {
     if (a.N <= 0) continue;
@@ -209,8 +234,9 @@ function checkCombo(i: BasePlateInput, c: NodeCombo): NodeComboResult {
     const m = Math.max(m0 - 0.8 * kf, an.d / 2);
     const e = Math.min(pl.L / 2 - Math.abs(a.x), pl.B / 2 - Math.abs(a.y));
     let leff = Math.min(2 * Math.PI * m, 4 * m + 1.25 * e);
-    if (an.ny > 1) leff = Math.min(leff, an.sy);
-    if (an.nx > 1 && Math.abs(a.x) < p.h / 2) leff = Math.min(leff, an.sx);
+    // сусідні анкери ділять ширину плити
+    const sNear = Math.min(...ar.forces.filter((q) => q !== a).map((q) => Math.hypot(q.x - a.x, q.y - a.y)));
+    if (Number.isFinite(sNear)) leff = Math.min(leff, sNear);
     const Mpl = 0.25 * leff * pl.t * pl.t * Rp;
     const FT = (2 * Mpl) / m;
     const u = a.N / FT;
@@ -223,31 +249,47 @@ function checkCombo(i: BasePlateInput, c: NodeCombo): NodeComboResult {
   const cst = steel(i.profileSteel);
   const Run = Math.min(cst.ultimate(p.tf, "shaped"), pst.ultimate(pl.t, "sheet"));
   const Ryn = Math.min(cst.yieldChar(p.tf, "shaped"), pst.yieldChar(pl.t, "sheet"));
-  const segs = weldShape(p.kind === "I" ? "iProfile" : "rhs", { b: p.b, h: p.h, tf: p.tf, tw: p.tw });
+  const segs: WeldSeg[] = p.kind === "CHS"
+    ? Array.from({ length: 36 }, (_, k) => {
+      const a0 = (k / 36) * 2 * Math.PI, a1 = ((k + 1) / 36) * 2 * Math.PI, r0 = p.h / 2;
+      return { y1: r0 * Math.cos(a0), z1: r0 * Math.sin(a0), y2: r0 * Math.cos(a1), z2: r0 * Math.sin(a1) };
+    })
+    : weldShape(p.kind === "I" ? "iProfile" : "rhs", { b: p.b, h: p.h, tf: p.tf, tw: p.tw });
   let Nw = -Nc;
   if (i.weld.milled && Nw < 0) Nw = 0;
   const wr = checkFillet({
     code: i.code, segs, kf, process: i.weld.process, Run, Ryn, tmin: Math.min(p.tf, pl.t), tmax: Math.max(p.tf, pl.t),
     N: Nw, Vy: Vw, Vz: Vs, Mx: 0, My: Ms, Mz: -Mw, gammaC: gc, gammaN: gn,
   });
-  checks.push(...wr.checks.map((ch) => ({ ...ch, key: ch.key, clause: ch.clause + " — профіль/плита" })));
+  // шов по колу — замкнений, перевірка мінімальної довжини окремих ділянок не потрібна
+  checks.push(...wr.checks.filter((ch) => !(p.kind === "CHS" && ch.key === "weldLmin")).map((ch) => ({ ...ch, clause: ch.clause + " — профіль/плита" })));
 
   // ---------- 7. Ребра ----------
-  const cL = (pl.L - p.h) / 2;
-  if (i.ribs.on && cL > 0 && sig > 0) {
-    const w = pl.B / 2;
-    const Mr = (sig * w * cL * cL) / 2, Qr = sig * w * cL;
+  const cL = (pl.L - p.h) / 2, cB = (pl.B - p.b) / 2;
+  const ribCases: { id: string; c: number; w: number }[] = [];
+  if (p.kind === "CHS") {
+    if (rf.web && cL > 0) ribCases.push({ id: "web", c: cL, w: pl.B / 2 });
+    if (rf.tips && cB > 0) ribCases.push({ id: "tips", c: cB, w: pl.L / 2 });
+  } else if (cL > 0) {
+    if (rf.web) ribCases.push({ id: "web", c: cL, w: rf.tips ? p.b / 2 : pl.B / 2 });
+    if (rf.tips) ribCases.push({ id: "tips", c: cL, w: (rf.web ? p.b / 4 : p.b / 2) + Math.max(0, cB) });
+  }
+  if (ribCases.length && sig > 0) {
+    const rc = ribCases.reduce((a, b) => (b.w * b.c * b.c > a.w * a.c * a.c ? b : a));
+    const { c, w } = rc;
+    const Mr = (sig * w * c * c) / 2, Qr = sig * w * c;
     const Ryr = pst.strength(i.ribs.tr, "sheet") * (dbn ? gc : 1);
     const sr = (6 * Mr) / (i.ribs.tr * i.ribs.hr ** 2), tr = (1.5 * Qr) / (i.ribs.tr * i.ribs.hr);
+    const lbl = rc.id === "web" ? "ребро по осі стінки" : "ребро по краю полиці";
     checks.push(mkCheck("nodeRibBend", dbn ? "ДБН В.2.6-198, п. 9.2.1, ф. (9.1)" : "EN 1993-1-1, 6.2.5", `6M/(t_r·h_r²) ≤ ${pRef}`,
-      `тиск з ширини B/2 = ${f(w, 0)} mm, виліт ${f(cL, 0)} mm; M = ${f(Mr / 1e6, 3)} kN·m; σ = ${f(sr, 1)} / ${f(Ryr, 0)} MPa`, sr * gn / Ryr));
+      `${lbl}: тиск з ширини ${f(w, 0)} mm, виліт ${f(c, 0)} mm; M = ${f(Mr / 1e6, 3)} kN·m; σ = ${f(sr, 1)} / ${f(Ryr, 0)} MPa`, sr * gn / Ryr));
     checks.push(mkCheck("nodeRibShear", dbn ? "ДБН В.2.6-198, п. 9.2.1, ф. (9.2)" : "EN 1993-1-1, 6.2.6", `1.5Q/(t_r·h_r) ≤ ${dbn ? "R_s·γ_c" : "f_y/(√3·γ_M0)"}`,
-      `Q = ${f(Qr / 1000)} kN; τ = ${f(tr, 1)} / ${f(Ryr / Math.sqrt(3), 0)} MPa`, (tr * gn) / (Ryr / Math.sqrt(3))));
+      `${lbl}: Q = ${f(Qr / 1000)} kN; τ = ${f(tr, 1)} / ${f(Ryr / Math.sqrt(3), 0)} MPa`, (tr * gn) / (Ryr / Math.sqrt(3))));
     const rw = checkFillet({
       code: i.code, segs: weldShape("lines2v", { b: i.ribs.tr, h: i.ribs.hr }), kf, process: i.weld.process, Run, Ryn,
       tmin: Math.min(i.ribs.tr, p.tf), tmax: Math.max(i.ribs.tr, p.tf), N: 0, Vy: 0, Vz: Qr, Mx: 0, My: Mr, Mz: 0, gammaC: gc, gammaN: gn,
     });
-    checks.push(...rw.checks.filter((ch) => ch.key !== "weldLmin").map((ch) => ({ ...ch, key: ch.key + "Rib", clause: ch.clause + " — ребро/полиця" })));
+    checks.push(...rw.checks.filter((ch) => ch.key !== "weldLmin").map((ch) => ({ ...ch, key: ch.key + "Rib", clause: ch.clause + ` — ${lbl}` })));
   }
 
   // ---------- 8. Корінь кронштейна ----------
@@ -284,4 +326,12 @@ export function checkBasePlate(i: BasePlateInput): NodeResult {
   combos.forEach((r, k) => { if (!(combos[governing].maxUtil >= r.maxUtil)) governing = k; });
   const u = envelope.map((c) => c.util);
   return { combos, envelope, governing, maxUtil: u.some((x) => Number.isNaN(x)) ? NaN : Math.max(0, ...u), ok: envelope.every((c) => c.ok) };
+}
+
+/** Координати анкерів від центра плити: задані вручну або сітка nx × ny */
+export function anchorPoints(an: BasePlateInput["anchors"]): { x: number; y: number }[] {
+  if (an.points?.length) return an.points;
+  const pts: { x: number; y: number }[] = [];
+  for (let a = 0; a < an.nx; a++) for (let b = 0; b < an.ny; b++) pts.push({ x: (a - (an.nx - 1) / 2) * an.sx, y: (b - (an.ny - 1) / 2) * an.sy });
+  return pts;
 }

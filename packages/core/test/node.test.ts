@@ -49,4 +49,20 @@ describe("опорна плита", () => {
     expect(r.envelope.find((x) => x.key === "nodeRootNormal")!.combo).toBe("1");
     expect(r.combos[0].checks.find((x) => x.key === "nodeRootNormal")!.util).toBeCloseTo(5e6 / 89000 / (245 / 1.025), 2);
   });
+  it("довільні координати анкерів = та сама сітка", () => {
+    const g = checkBasePlate(base({ combos: [{ name: "1", N: -60e3, Vz: 10e3 }] }));
+    const f = checkBasePlate(base({ combos: [{ name: "1", N: -60e3, Vz: 10e3 }], anchors: { ...base().anchors, points: [{ x: 0, y: -60 }, { x: 0, y: 60 }] } }));
+    expect(f.maxUtil).toBeCloseTo(g.maxUtil, 6);
+  });
+  it("ребра по краях полиць: ділянка на 3 сторони", () => {
+    const p = platePanels({ kind: "I", h: 200, b: 200, tw: 6.5, tf: 10 }, 400, 200, { web: true, tips: true, hr: 150, tr: 10 }, 1);
+    const o = p.find((x) => x.id === "outRibs3")!;
+    // a1 = b/2 − t_r = 90, b1 = c_L = 100 → b1/a1 = 1.11 → β = 0.112 + 0.008·0.555
+    expect(o.coef).toBeCloseTo(0.112 + 0.008 * (100 / 90 - 1) / 0.2, 4);
+  });
+  it("кругла труба: шов по колу, рахунок без помилок", () => {
+    const r = checkBasePlate(base({ profile: { kind: "CHS", h: 219, b: 219, tw: 8, tf: 8 }, ribs: { web: true, tips: true, hr: 150, tr: 10 }, combos: [{ name: "1", N: 400e3, My: 20e6 }] }));
+    expect(Number.isFinite(r.maxUtil)).toBe(true);
+    expect(r.envelope.some((c) => c.key === "nodeRibBend")).toBe(true);
+  });
 });

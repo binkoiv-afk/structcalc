@@ -4,7 +4,7 @@
 
 import type { CodeId } from "../codes/types";
 import { Check, f, mkCheck } from "../codes/types";
-import { BOLT_AS, boltForces } from "./bolts";
+import { BOLT_AS } from "./bolts";
 import type { ConnResult } from "./bolts";
 
 export type AnchorType = "headed" | "mechanical" | "bonded";
@@ -49,6 +49,8 @@ export interface AnchorInput {
   h: number; // товщина бетонного елемента, мм
   /** розташування: nx стовпців (вздовж x) з кроком sx, ny рядів з кроком sy */
   nx: number; ny: number; sx: number; sy: number;
+  /** довільне розташування анкерів (координати від центра плити), замість сітки nx × ny */
+  points?: { x: number; y: number }[];
   /** відстань від крайніх анкерів до країв бетону, мм (Infinity — краю немає) */
   cxm: number; cxp: number; cym: number; cyp: number;
   /** опорна плита: bx × by, мм (центр — у центрі групи) */
@@ -163,18 +165,24 @@ export function checkAnchors(i: AnchorInput): ConnResult & { forces: { x: number
   const fck = i.fck;
   const Ecm = 22000 * ((fck + 8) / 10) ** 0.3;
   const gMc = 1.5 * (i.gammaInst ?? (i.type === "headed" ? 1.0 : 1.2));
-  const n = i.nx * i.ny;
+
 
   // координати анкерів (центр групи — 0,0)
   const pts: Pt[] = [];
-  for (let a = 0; a < i.nx; a++) for (let b = 0; b < i.ny; b++) pts.push({ x: (a - (i.nx - 1) / 2) * i.sx, y: (b - (i.ny - 1) / 2) * i.sy });
-  const X0 = -((i.nx - 1) / 2) * i.sx - i.cxm, X1 = ((i.nx - 1) / 2) * i.sx + i.cxp;
-  const Y0 = -((i.ny - 1) / 2) * i.sy - i.cym, Y1 = ((i.ny - 1) / 2) * i.sy + i.cyp;
+  if (i.points?.length) pts.push(...i.points.map((p) => ({ x: p.x, y: p.y })));
+  else for (let a = 0; a < i.nx; a++) for (let b = 0; b < i.ny; b++) pts.push({ x: (a - (i.nx - 1) / 2) * i.sx, y: (b - (i.ny - 1) / 2) * i.sy });
+  const n = pts.length;
+  const xMin = Math.min(...pts.map((p) => p.x)), xMax = Math.max(...pts.map((p) => p.x));
+  const yMin = Math.min(...pts.map((p) => p.y)), yMax = Math.max(...pts.map((p) => p.y));
+  // краї бетону: c від крайніх анкерів
+  const X0 = xMin - i.cxm, X1 = xMax + i.cxp, Y0 = yMin - i.cym, Y1 = yMax + i.cyp;
+  // найменша відстань між анкерами
+  let sMin = Infinity;
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) sMin = Math.min(sMin, Math.hypot(pts[a].x - pts[b].x, pts[a].y - pts[b].y));
   const edgeDist = (p: Pt) => Math.min(p.x - X0, X1 - p.x, p.y - Y0, Y1 - p.y);
 
   const tens = anchorTension(pts, As, i.bx, i.by, i.N * gn, i.Mx * gn, i.My * gn, Ecm);
-  const sh = boltForces({ cols: i.nx, rows: i.ny, px: i.sx, py: i.sy }, i.Vx * gn, i.Vy * gn, i.T * gn);
-  // порядок точок у boltForces: for cols { for rows } — збігається з pts
+  const sh = shearForces(pts, i.Vx * gn, i.Vy * gn, i.T * gn);
   const forces = pts.map((p, k) => ({ ...p, N: tens.F[k], V: sh.forces[k].v }));
   const NEd = Math.max(0, ...tens.F);
   const NEdG = tens.F.reduce((a, b) => a + b, 0);
@@ -218,7 +226,7 @@ export function checkAnchors(i: AnchorInput): ConnResult & { forces: { x: number
   const notes: string[] = [];
   if (near.length >= 3) {
     const cmax = Math.max(...near);
-    const smax = Math.max(i.nx > 1 ? (i.nx - 1) * i.sx : 0, i.ny > 1 ? (i.ny - 1) * i.sy : 0);
+    const smax = Math.max(xMax - xMin, yMax - yMin);
     const h2 = Math.max(cmax / 1.5, smax / 3);
     if (h2 < hef) { scrN = scrN * h2 / hef; ccrN = ccrN * h2 / hef; hef = h2; notes.push("narrowHef"); }
   }
@@ -300,7 +308,7 @@ export function checkAnchors(i: AnchorInput): ConnResult & { forces: { x: number
       const c = Math.min(...idx.map((k) => edgeDist(pts[k])));
       const psiS = Math.min(1, 0.7 + 0.3 * c / ccrNp);
       const g0 = Math.max(1, Math.sqrt(nn) - (Math.sqrt(nn) - 1) * Math.min(1, tau / tauC) ** 1.5);
-      const s = nn > 1 ? Math.min(i.nx > 1 ? i.sx : Infinity, i.ny > 1 ? i.sy : Infinity) : scrNp;
+      const s = nn > 1 && Number.isFinite(sMin) ? sMin : scrNp;
       const psiG = Math.max(1, g0 - Math.sqrt(Math.min(1, s / scrNp)) * (g0 - 1));
       const psiEc = withEcc ? eccOf(idx, scrNp) : 1;
       return { NRk: N0p * (Ap / A0) * psiG * psiS * psiRe * psiEc, Ap, A0, psiS, psiG, psiEc };
@@ -459,4 +467,17 @@ function psiSusN0(i: AnchorInput, hef: number): number {
   const tauUcr = i.tauRkUcr ?? 12, tau = i.tauRk ?? (i.cracked ? 7 : tauUcr);
   const k1 = i.cracked ? 7.7 : 11.0;
   return Math.min((i.psiSus ?? 1) * tau * Math.PI * i.d * hef, k1 * Math.sqrt(i.fck) * hef ** 1.5);
+}
+
+/** Зсув і кручення на групу довільно розташованих анкерів (кручення — навколо центру ваги групи) */
+function shearForces(pts: Pt[], Fx: number, Fy: number, T: number) {
+  const n = pts.length;
+  const gx = pts.reduce((a, p) => a + p.x, 0) / n, gy = pts.reduce((a, p) => a + p.y, 0) / n;
+  const Ip = pts.reduce((a, p) => a + (p.x - gx) ** 2 + (p.y - gy) ** 2, 0);
+  const forces = pts.map((p) => {
+    const vx = Fx / n - (Ip ? (T * (p.y - gy)) / Ip : 0);
+    const vy = Fy / n + (Ip ? (T * (p.x - gx)) / Ip : 0);
+    return { vx, vy, v: Math.hypot(vx, vy) };
+  });
+  return { forces };
 }
