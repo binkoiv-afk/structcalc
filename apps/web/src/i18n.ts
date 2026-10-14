@@ -5,6 +5,13 @@ export type Lang = (typeof LANGS)[number];
 type Dict = Record<string, string>;
 
 const uk: Dict = {
+  sup_slide: "ковзне защемлення",
+  sup_spring: "пружна опора",
+  load_trap: "трапецієвидне, кН/м",
+  chk_localWeb: "Місцева стійкість стінки",
+  chk_localFlange: "Місцева стійкість полиці",
+  note_localWebRolled: "При λ̄w > 2,2 потрібні поперечні ребра (п. 9.5.9); перевірка відсіків за 9.5.3 — для зварних балок.",
+  note_sectionTypeFigure: "Тип перерізу для табл. 8.3/8.4 визначено за формою (двотавр/короб/швелер).",
   lc_open: "Зібрати сніг / вітер за нормами",
   lc_hide: "Сховати збір навантажень",
   advanced: "Додаткові параметри",
@@ -144,6 +151,13 @@ const uk: Dict = {
 };
 
 const ru: Dict = {
+  sup_slide: "скользящая заделка",
+  sup_spring: "упругая опора",
+  load_trap: "трапециевидная, кН/м",
+  chk_localWeb: "Местная устойчивость стенки",
+  chk_localFlange: "Местная устойчивость полки",
+  note_localWebRolled: "При λ̄w > 2,2 нужны поперечные рёбра (п. 9.5.9); проверка отсеков по 9.5.3 — для сварных балок.",
+  note_sectionTypeFigure: "Тип сечения для табл. 8.3/8.4 определён по форме (двутавр/короб/швеллер).",
   lc_open: "Собрать снег / ветер по нормам",
   lc_hide: "Скрыть сбор нагрузок",
   advanced: "Дополнительные параметры",
@@ -284,6 +298,13 @@ const ru: Dict = {
 };
 
 const en: Dict = {
+  sup_slide: "sliding clamp",
+  sup_spring: "spring support",
+  load_trap: "trapezoidal, kN/m",
+  chk_localWeb: "Web local stability",
+  chk_localFlange: "Flange local stability",
+  note_localWebRolled: "For λ̄w > 2.2 transverse stiffeners are required (9.5.9).",
+  note_sectionTypeFigure: "Section type for tables 8.3/8.4 taken from the shape (I/box/channel).",
   lc_open: "Collect snow / wind per code",
   lc_hide: "Hide load collection",
   advanced: "More options",

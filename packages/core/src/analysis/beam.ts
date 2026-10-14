@@ -2,10 +2,13 @@
 // Единицы: Н, мм. Нагрузки вниз — положительные. Изгибающий момент:
 // «+» — растянуты нижние волокна. Прогиб: «+» — вниз.
 
-export type SupportType = "pin" | "fixed" | "free";
+/** pin — шарнирно-неподвижная/подвижная; fixed — заделка; free — свободный конец;
+ *  slide — скользящая заделка (поворот запрещен, перемещение свободно); spring — упругая опора (жесткость k). */
+export type SupportType = "pin" | "fixed" | "free" | "slide" | "spring";
 
 export type BeamLoad =
-  | { type: "udl"; q: number; from?: number; to?: number }
+  /** распределенная: q — в начале участка, q2 — в конце (трапеция/треугольник); без q2 — равномерная */
+  | { type: "udl"; q: number; q2?: number; from?: number; to?: number }
   | { type: "point"; P: number; x: number }
   | { type: "moment"; M: number; x: number };
 
@@ -16,6 +19,8 @@ export interface BeamModel {
   supports: SupportType[];
   EI: number;
   loads: BeamLoad[];
+  /** жесткость упругих опор, Н/мм (по индексу опоры) */
+  springs?: number[];
 }
 
 export interface BeamResult {
@@ -59,6 +64,12 @@ function solveBanded(A: number[][], b: number[], bw = 4): number[] {
 
 export function analyzeBeam(model: BeamModel, divisions = 240): BeamResult {
   const { spans, supports, EI, loads } = model;
+  const qAt = (l: Extract<BeamLoad, { type: "udl" }>, x: number, Ltot: number) => {
+    const a = l.from ?? 0, b = l.to ?? Ltot;
+    if (x < a - 1e-9 || x > b + 1e-9) return 0;
+    if (l.q2 == null || b - a < 1e-9) return l.q;
+    return l.q + ((l.q2 - l.q) * (x - a)) / (b - a);
+  };
   if (supports.length !== spans.length + 1) throw new Error("supports.length must be spans.length + 1");
   const supportX: number[] = [0];
   for (const L of spans) supportX.push(supportX[supportX.length - 1] + L);
@@ -82,19 +93,20 @@ export function analyzeBeam(model: BeamModel, divisions = 240): BeamResult {
   const nn = xs.length, nd = 2 * nn;
   const K = Array.from({ length: nd }, () => new Array(nd).fill(0));
   const F = new Array(nd).fill(0);
-  const elemQ: number[] = [];
+  const elemQ: [number, number][] = [];
   const idx = (x: number) => xs.findIndex((v) => Math.abs(v - x) < 1e-6);
 
   for (let e = 0; e < nn - 1; e++) {
     const L = xs[e + 1] - xs[e];
-    const xm = (xs[e] + xs[e + 1]) / 2;
-    let q = 0;
-    for (const l of loads) if (l.type === "udl" && xm >= (l.from ?? 0) && xm <= (l.to ?? Ltot)) q += l.q;
-    elemQ.push(q);
+    // интенсивность на концах элемента (сетка содержит границы всех участков нагрузки)
+    const xa = xs[e] + 1e-7 * L, xb = xs[e + 1] - 1e-7 * L;
+    let qa = 0, qb = 0;
+    for (const l of loads) if (l.type === "udl") { qa += qAt(l, xa, Ltot); qb += qAt(l, xb, Ltot); }
+    elemQ.push([qa, qb]);
     const k = elemK(EI, L);
     const d = [2 * e, 2 * e + 1, 2 * e + 2, 2 * e + 3];
     for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) K[d[i]][d[j]] += k[i][j];
-    const fe = elemF(q, L);
+    const fe = elemF(qa, qb, L);
     for (let i = 0; i < 4; i++) F[d[i]] += fe[i];
   }
   for (const l of loads) {
@@ -105,7 +117,8 @@ export function analyzeBeam(model: BeamModel, divisions = 240): BeamResult {
   supports.forEach((s, i) => {
     const n = idx(supportX[i]);
     if (s === "pin" || s === "fixed") fixed.add(2 * n);
-    if (s === "fixed") fixed.add(2 * n + 1);
+    if (s === "fixed" || s === "slide") fixed.add(2 * n + 1);
+    if (s === "spring") K[2 * n][2 * n] += model.springs?.[i] ?? 0;
   });
   const free = [...Array(nd).keys()].filter((d) => !fixed.has(d));
   const Kff = free.map((i) => free.map((j) => K[i][j]));
@@ -116,22 +129,23 @@ export function analyzeBeam(model: BeamModel, divisions = 240): BeamResult {
   const reactions = supports.map((s, i) => {
     const n = idx(supportX[i]);
     const r = (d: number) => K[d].reduce((acc, kij, j) => acc + kij * u[j], 0) - F[d];
-    return { x: supportX[i], R: s === "free" ? 0 : r(2 * n), M: s === "fixed" ? r(2 * n + 1) : 0 };
+    const R = s === "free" || s === "slide" ? 0 : s === "spring" ? -(model.springs?.[i] ?? 0) * u[2 * n] : r(2 * n);
+    return { x: supportX[i], R, M: s === "fixed" || s === "slide" ? r(2 * n + 1) : 0 };
   });
 
   const X: number[] = [], M: number[] = [], V: number[] = [], W: number[] = [];
   for (let e = 0; e < nn - 1; e++) {
     const L = xs[e + 1] - xs[e];
     const ue = [u[2 * e], u[2 * e + 1], u[2 * e + 2], u[2 * e + 3]];
-    const k = elemK(EI, L), fe = elemF(elemQ[e], L);
+    const [qa, qb] = elemQ[e];
+    const k = elemK(EI, L), fe = elemF(qa, qb, L);
     const f = k.map((row, i) => row.reduce((a, kij, j) => a + kij * ue[j], 0) - fe[i]);
     const M1 = -f[1], M2 = f[3], V1 = f[0], V2 = -f[2];
-    const q = elemQ[e];
-    const Mmid = (M1 + M2) / 2 + (q * L * L) / 8;
+    const Mmid = (M1 + M2) / 2 + ((qa + qb) * L * L) / 16;
     const wmid = -(0.5 * ue[0] + (L / 8) * ue[1] + 0.5 * ue[2] - (L / 8) * ue[3]);
     X.push(xs[e], xs[e] + L / 2, xs[e + 1]);
     M.push(M1, Mmid, M2);
-    V.push(V1, (V1 + V2) / 2, V2);
+    V.push(V1, V1 - ((3 * qa + qb) * L) / 8, V2);
     W.push(-ue[0], wmid, -ue[2]);
   }
 
@@ -173,9 +187,15 @@ function elemK(EI: number, L: number): number[][] {
   ];
 }
 
-function elemF(q: number, L: number): number[] {
-  // q вниз → эквивалентные узловые силы вниз
-  return [(-q * L) / 2, (-q * L * L) / 12, (-q * L) / 2, (q * L * L) / 12];
+function elemF(qa: number, qb: number, L: number): number[] {
+  // линейная нагрузка qa → qb (вниз) → согласованные узловые силы: равномерная qa + треугольная (qb − qa)
+  const p = qb - qa;
+  return [
+    -(qa * L) / 2 - (3 * p * L) / 20,
+    -(qa * L * L) / 12 - (p * L * L) / 30,
+    -(qa * L) / 2 - (7 * p * L) / 20,
+    (qa * L * L) / 12 + (p * L * L) / 20,
+  ];
 }
 
 function clamp(v: number, a: number, b: number) {

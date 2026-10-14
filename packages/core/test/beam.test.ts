@@ -42,3 +42,34 @@ describe("analyzeBeam", () => {
     expect(rel(r.spanDeflections[0].w, (P * L ** 3) / (48 * EI))).toBeLessThan(1e-6);
   });
 });
+
+describe("Трапецієвидне навантаження, пружні та ковзні опори", () => {
+  const EI = 2.1e5 * 8.356e7;
+  it("трикутне навантаження 0→p на шарнірній балці: Mmax = pL²/(9√3)", () => {
+    const L = 6000, p = 10;
+    const r = analyzeBeam({ spans: [L], supports: ["pin", "pin"], EI, loads: [{ type: "udl", q: 0, q2: p }] }, 600);
+    expect(r.Mmax).toBeCloseTo((p * L * L) / (9 * Math.sqrt(3)), -4);
+    expect(r.reactions[0].R).toBeCloseTo((p * L) / 6, 1);
+    expect(r.reactions[1].R).toBeCloseTo((p * L) / 3, 1);
+  });
+  it("трапеція = рівномірне + трикутне", () => {
+    const L = 5000;
+    const a = analyzeBeam({ spans: [L], supports: ["fixed", "pin"], EI, loads: [{ type: "udl", q: 2, q2: 6 }] });
+    const b = analyzeBeam({ spans: [L], supports: ["fixed", "pin"], EI, loads: [{ type: "udl", q: 2 }, { type: "udl", q: 0, q2: 4 }] });
+    expect(a.reactions[0].M).toBeCloseTo(b.reactions[0].M, 3);
+    expect(a.Mmax).toBeCloseTo(b.Mmax, 3);
+  });
+  it("ковзна заделка — консоль навпаки: M = qL²/3 біля заделки", () => {
+    const L = 4000, q = 5;
+    const r = analyzeBeam({ spans: [L], supports: ["fixed", "slide"], EI, loads: [{ type: "udl", q }] });
+    expect(Math.abs(r.reactions[0].M)).toBeCloseTo((q * L * L) / 3, -3);
+    expect(r.reactions[0].R).toBeCloseTo(q * L, 1);
+  });
+  it("пружна опора посередині: дуже жорстка ≈ шарнір", () => {
+    const L = 6000, q = 5;
+    const sp = analyzeBeam({ spans: [L, L], supports: ["pin", "spring", "pin"], springs: [0, 1e9, 0], EI, loads: [{ type: "udl", q }] });
+    expect(sp.reactions[1].R).toBeCloseTo(1.25 * q * L, 0);
+    const soft = analyzeBeam({ spans: [L, L], supports: ["pin", "spring", "pin"], springs: [0, 1, 0], EI, loads: [{ type: "udl", q }] });
+    expect(soft.reactions[1].R).toBeLessThan(0.1 * q * L);
+  });
+});

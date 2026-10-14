@@ -12,8 +12,11 @@ import { TriedList } from "./TriedList";
 type Mode = "check" | "select";
 type Tab = "results" | "report";
 
+type LoadKind = "udl" | "trap" | "point" | "moment";
+const kindOf = (l: UserLoad): LoadKind => (l.type === "udl" && l.q2 != null ? "trap" : l.type);
+
 export interface BeamState {
-  spans: number[]; supports: SupportType[]; loads: UserLoad[];
+  spans: number[]; supports: SupportType[]; springs: number[]; loads: UserLoad[];
   selfWeight: boolean; gammaG: number; gammaQ: number; gammaC: number; gammaN: number; restraints: 0 | 1 | 2;
   restrained: boolean; loadAt: "top" | "center" | "bottom"; LcrLT: string; deflLimit: number;
   mode: Mode; family: string; size: string; useAxial: boolean; NEd: number; Lcr_y: number; Lcr_z: number;
@@ -21,7 +24,7 @@ export interface BeamState {
 }
 
 export const initialBeam: BeamState = {
-  steel: "C245", spans: [6], supports: ["pin", "pin"],
+  steel: "C245", spans: [6], supports: ["pin", "pin"], springs: [],
   loads: [{ type: "udl", cat: "G", q: 3 }, { type: "udl", cat: "Q", q: 5 }],
   selfWeight: true, ...DEFAULT_FACTORS.DBN, gammaC: 1.0, gammaN: 1.0, restraints: 0, restrained: false, loadAt: "top", LcrLT: "",
   deflLimit: 0, mode: "select", family: "IPE", size: "IPE 270", useAxial: false, NEd: 0, Lcr_y: 6, Lcr_z: 6,
@@ -38,7 +41,7 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
   const [showLc, setShowLc] = useState(false);
 
   const input: BeamDesignInput = useMemo(() => ({
-    code, steel: s.steel, spans: s.spans, supports: s.supports, loads: s.loads, selfWeight: s.selfWeight,
+    code, steel: s.steel, spans: s.spans, supports: s.supports, springs: s.supports.map((_, i) => s.springs[i] ?? 0), loads: s.loads, selfWeight: s.selfWeight,
     gammaG: s.gammaG, gammaQ: s.gammaQ, gammaC: s.gammaC, gammaN: s.gammaN,
     ltb: { restrained: s.restrained, loadAt: s.loadAt, restraints: s.restraints, Lcr: s.LcrLT.trim() ? num(s.LcrLT) : undefined },
     deflectionLimit: s.deflLimit,
@@ -59,7 +62,11 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
   }, [input, s.mode, s.family, s.size]);
 
   const updateSpan = (i: number, v: number) => set({ spans: s.spans.map((x, k) => (k === i ? v : x)) });
-  const updateSupport = (i: number, v: SupportType) => set({ supports: s.supports.map((x, k) => (k === i ? v : x)) });
+  const updateSupport = (i: number, v: SupportType) => {
+    const springs = [...s.springs];
+    if (v === "spring" && !springs[i]) springs[i] = 10000;
+    set({ supports: s.supports.map((x, k) => (k === i ? v : x)), springs });
+  };
   const updateLoad = (i: number, p: Partial<UserLoad>) => set({ loads: s.loads.map((l, k) => (k === i ? ({ ...l, ...p } as UserLoad) : l)) });
   const total = s.spans.reduce((a, b) => a + b, 0);
   const r = calc.result;
@@ -76,9 +83,16 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
                   <label className="sup">
                     <span className="lbl">{t("support")} {i + 1}</span>
                     <select id={`sup${i}`} value={sup} onChange={(e) => updateSupport(i, e.target.value as SupportType)}>
-                      {(["pin", "fixed", "free"] as const).map((o) => <option key={o} value={o}>{t(`sup_${o}`)}</option>)}
+                      {(["pin", "fixed", "free", "slide", "spring"] as const).map((o) => <option key={o} value={o}>{t(`sup_${o}`)}</option>)}
                     </select>
                   </label>
+                  {sup === "spring" && (
+                    <label className="span-len">
+                      <span className="lbl">k, kN/m</span>
+                      <input id={`k${i}`} type="number" step="100" min="0" value={s.springs[i] ?? 0}
+                        onChange={(e) => { const k = [...s.springs]; k[i] = num(e.target.value); set({ springs: k }); }} />
+                    </label>
+                  )}
                   {i < s.spans.length && (
                     <label className="span-len">
                       <span className="lbl">L{i + 1}, m</span>
@@ -100,13 +114,16 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
               {s.loads.map((l, i) => (
                 <div key={i} className={`load-card ${l.cat}`}>
                   <div className="load-row">
-                    <select id={`lt${i}`} value={l.type} onChange={(e) => {
-                      const type = e.target.value as UserLoad["type"];
+                    <select id={`lt${i}`} value={kindOf(l)} onChange={(e) => {
+                      const kind = e.target.value as LoadKind;
                       const v = l.type === "udl" ? l.q : l.type === "point" ? l.P : l.M;
-                      const nl: UserLoad = type === "udl" ? { type, cat: l.cat, q: v } : type === "point" ? { type, cat: l.cat, P: v, x: total / 2 } : { type, cat: l.cat, M: v, x: 0 };
+                      const meta = { cat: l.cat, label: l.label, gf: l.gf, gfe: l.gfe, note: l.note };
+                      const nl: UserLoad = kind === "udl" ? { ...meta, type: "udl", q: v }
+                        : kind === "trap" ? { ...meta, type: "udl", q: 0, q2: v || 1 }
+                        : kind === "point" ? { ...meta, type: "point", P: v, x: total / 2 } : { ...meta, type: "moment", M: v, x: 0 };
                       set({ loads: s.loads.map((x, k) => (k === i ? nl : x)) });
                     }}>
-                      {(["udl", "point", "moment"] as const).map((o) => <option key={o} value={o}>{t(`load_${o}`)}</option>)}
+                      {(["udl", "trap", "point", "moment"] as const).map((o) => <option key={o} value={o}>{t(`load_${o}`)}</option>)}
                     </select>
                     <select id={`lc${i}`} value={l.cat} onChange={(e) => updateLoad(i, { cat: e.target.value as "G" | "Q" })}>
                       <option value="G">{t("cat_G")}</option><option value="Q">{t("cat_Q")}</option>
@@ -115,10 +132,17 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
                     <button className="icon" aria-label="×" onClick={() => set({ loads: s.loads.filter((_, k) => k !== i) })}>×</button>
                   </div>
                   <div className="load-row">
+                    {l.type === "udl" && l.q2 != null ? (
+                      <>
+                        <label><span className="lbl">q₁</span><input id={`lv${i}`} type="number" step="0.1" value={l.q} onChange={(e) => updateLoad(i, { q: num(e.target.value) } as Partial<UserLoad>)} /></label>
+                        <label><span className="lbl">q₂</span><input id={`lv2${i}`} type="number" step="0.1" value={l.q2} onChange={(e) => updateLoad(i, { q2: num(e.target.value) } as Partial<UserLoad>)} /></label>
+                      </>
+                    ) : (
                     <label><span className="lbl">{t("value")}</span>
                       <input id={`lv${i}`} type="number" step="0.1" value={l.type === "udl" ? l.q : l.type === "point" ? l.P : l.M}
                         onChange={(e) => updateLoad(i, (l.type === "udl" ? { q: num(e.target.value) } : l.type === "point" ? { P: num(e.target.value) } : { M: num(e.target.value) }) as Partial<UserLoad>)} />
                     </label>
+                    )}
                     {l.type === "udl" ? (
                       <>
                         <label><span className="lbl">{t("from")}</span><input id={`lf${i}`} type="number" step="0.1" placeholder="0" value={l.from ?? ""} onChange={(e) => updateLoad(i, { from: e.target.value === "" ? undefined : num(e.target.value) } as Partial<UserLoad>)} /></label>

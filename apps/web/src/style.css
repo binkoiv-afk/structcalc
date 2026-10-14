@@ -41,7 +41,8 @@ button, input, select { font: inherit; color: var(--ink); }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 16px; }
 .brand-mark { fill: none; stroke: var(--accent); stroke-width: 2.4; stroke-linecap: square; }
 .module { font-weight: 400; color: var(--muted); font-size: 14px; }
-.top-controls { display: flex; gap: 8px; align-items: center; }
+.top-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.top-controls > * { flex-shrink: 0; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
 .seg button { border: 0; background: transparent; padding: 5px 14px; cursor: pointer; }
 .seg button.on { background: var(--accent); color: var(--accent-ink); }

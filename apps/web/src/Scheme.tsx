@@ -9,10 +9,11 @@ export function Scheme({ spans, supports, loads, t }: { spans: number[]; support
   spans.forEach((s) => xs.push(xs[xs.length - 1] + s));
 
   const udls = loads.filter((l): l is Extract<UserLoad, { type: "udl" }> => l.type === "udl");
-  const qmax = Math.max(1e-9, ...udls.map((l) => Math.abs(l.q)));
+  const qAbs = (l: Extract<UserLoad, { type: "udl" }>) => Math.max(Math.abs(l.q), Math.abs(l.q2 ?? l.q));
+  const qmax = Math.max(1e-9, ...udls.map(qAbs));
   const fmt = (v: number) => (Math.round(v * 100) / 100).toString();
   // Распределенные нагрузки рисуются стопкой: каждая следующая — над предыдущей с подписью.
-  const bandH = udls.map((l) => 12 + 24 * (Math.abs(l.q) / qmax));
+  const bandH = udls.map((l) => 12 + 24 * (qAbs(l) / qmax));
   const stackH = bandH.reduce((a, h) => a + h + 18, 0);
   const hasPoint = loads.some((l) => l.type === "point");
   const beamY = Math.max(stackH, hasPoint ? 76 : 30) + 16;
@@ -35,16 +36,27 @@ export function Scheme({ spans, supports, loads, t }: { spans: number[]; support
         const n = Math.max(2, Math.round((b - a) / 28));
         return (
           <g key={`u${i}`} className={l.cat === "G" ? "s-load g" : "s-load q"}>
-            <rect x={a} y={top} width={b - a} height={bandH[i]} className="s-udl" />
-            {Array.from({ length: n + 1 }, (_, k) => {
-              const x = a + ((b - a) * k) / n;
-              return l.q < 0
-                ? <line key={k} x1={x} y1={top + bandH[i]} x2={x} y2={top + 2} markerEnd="url(#arr)" />
-                : <line key={k} x1={x} y1={top} x2={x} y2={top + bandH[i] - 2} markerEnd="url(#arr)" />;
-            })}
-            <text x={(a + b) / 2} y={top - 5} textAnchor="middle" className="s-text">
-              {l.label ? `${l.label}: ` : ""}{l.cat === "G" ? "g" : "q"} = {fmt(l.q)} kN/m
-            </text>
+            {(() => {
+              // трапеция: высота стрелок пропорциональна интенсивности в точке
+              const q1 = l.q, q2 = l.q2 ?? l.q, qm = Math.max(1e-9, Math.abs(q1), Math.abs(q2));
+              const h = (x: number) => Math.max(4, bandH[i] * Math.abs(q1 + ((q2 - q1) * (x - a)) / Math.max(b - a, 1e-9)) / qm);
+              const bot = top + bandH[i];
+              const up = q1 + q2 < 0;
+              return (
+                <>
+                  <path d={`M ${a} ${bot} L ${a} ${bot - h(a)} L ${b} ${bot - h(b)} L ${b} ${bot} Z`} className="s-udl" />
+                  {Array.from({ length: n + 1 }, (_, k) => {
+                    const x = a + ((b - a) * k) / n;
+                    return up
+                      ? <line key={k} x1={x} y1={bot} x2={x} y2={bot - h(x) + 2} markerEnd="url(#arr)" />
+                      : <line key={k} x1={x} y1={bot - h(x)} x2={x} y2={bot - 2} markerEnd="url(#arr)" />;
+                  })}
+                  <text x={(a + b) / 2} y={top - 5} textAnchor="middle" className="s-text">
+                    {l.label ? `${l.label}: ` : ""}{l.cat === "G" ? "g" : "q"} = {l.q2 != null && l.q2 !== l.q ? `${fmt(q1)}…${fmt(q2)}` : fmt(q1)} kN/m
+                  </text>
+                </>
+              );
+            })()}
           </g>
         );
       })}
@@ -91,6 +103,27 @@ export function Scheme({ spans, supports, loads, t }: { spans: number[]; support
               {Array.from({ length: 6 }, (_, k) => (
                 <line key={k} x1={x} y1={beamY - 16 + k * 7} x2={x + dir * 8} y2={beamY - 22 + k * 7} />
               ))}
+            </g>
+          );
+        }
+        if (s === "slide") {
+          // скользящая заделка: поворот запрещен, вертикальное перемещение свободно
+          const dir = i === 0 ? -1 : 1;
+          return (
+            <g key={`s${i}`} className="s-support">
+              <line x1={x} y1={beamY - 16} x2={x} y2={beamY + 16} strokeWidth={2.5} />
+              <circle cx={x + dir * 5} cy={beamY - 9} r={3.5} fill="none" />
+              <circle cx={x + dir * 5} cy={beamY + 9} r={3.5} fill="none" />
+              <line x1={x + dir * 10} y1={beamY - 20} x2={x + dir * 10} y2={beamY + 20} />
+            </g>
+          );
+        }
+        if (s === "spring") {
+          const z = Array.from({ length: 7 }, (_, k) => `${x + (k % 2 ? 7 : -7)} ${beamY + 6 + k * 3}`).join(" L ");
+          return (
+            <g key={`s${i}`} className="s-support">
+              <path d={`M ${x} ${beamY + 2} L ${x} ${beamY + 5} L ${z} L ${x} ${beamY + 28}`} fill="none" />
+              <line x1={x - 12} y1={beamY + 30} x2={x + 12} y2={beamY + 30} />
             </g>
           );
         }

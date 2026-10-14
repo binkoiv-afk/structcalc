@@ -36,3 +36,17 @@ describe("ДБН В.2.6-198, розд. 10 — позацентровий сти�
     expect(Number.isFinite(outP.util)).toBe(true);
   });
 });
+
+describe("Місцева стійкість (п. 8.3, 9.5)", () => {
+  it("балка IPE 300 і колона HEB 200: перевірки стінки і полиці", () => {
+    const ipe = findSection("IPE", "IPE 300")!;
+    const b = checkMemberDBN({ code: "DBN", section: ipe, steel: "C245", MEd: 100e6 });
+    const w = b.checks.find((c) => c.key === "localWeb")!;
+    expect(w.util).toBeCloseTo(((300 - 2 * 10.7 - 30) / 7.1) * Math.sqrt((245 / 1.025) / 206000) / 3.5, 6);
+    expect(b.checks.find((c) => c.key === "localFlange")!.util).toBeLessThan(1);
+    const heb = findSection("HEB", "HEB 200")!;
+    const c = checkMemberDBN({ code: "DBN", section: heb, steel: "C245", NEd: 800e3, buckling: { Lcr_y: 4000, Lcr_z: 4000 } });
+    expect(c.checks.some((x) => x.key === "localWeb")).toBe(true);
+    expect(c.checks.find((x) => x.key === "localFlange")!.util).toBeLessThan(1);
+  });
+});

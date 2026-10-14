@@ -138,6 +138,7 @@ export function checkMemberDBN(inp: MemberInput): MemberResult {
     checks.push(mkCheck("bending", `${CL}, п. 9.2.1, ф. (9.1)`, "M·γ_n / (W_n,min·R_y·γ_c) ≤ 1",
       `${f(kNm(MEd / gn))}${gnTxt}·10³ / (${f(cm3(s.Wy), 1)}·${f(Ry, 1)}·${gc}) = ${f(sig, 1)} / ${f(R, 1)} MPa`, sig / R, ["elasticDBN"]));
   }
+  if (MEd > 0 && NEd === 0) checks.push(...localBeamDBN(s, MEd, Ry, gc, st.E));
   if (VEd > 0) {
     const S = s.Wply / 2;
     const tau = (VEd * S) / (s.Iy * s.tWeb);
@@ -210,6 +211,7 @@ export function checkMemberDBN(inp: MemberInput): MemberResult {
         checks.push(mkCheck(`slenderness_${axis === "x" ? "y" : "z"}`, `${CL}, п. 13.4`, "λ ≤ λ_u = 180 − 60α",
           `${f(lam, 1)} ≤ ${f(lamU, 1)}`, lam / lamU));
       }
+      if (MEd === 0) checks.push(...localColumnDBN(s, Math.max(lams.x.lamBar, lams.y.lamBar), Ry, st.E));
       if (MEd > 0) {
         // 10.2.2: стійкість у площині дії моменту
         const m = (MEd / NEd) * (s.A / s.Wy);
@@ -273,4 +275,61 @@ export function deflectionLimitDSTU(l_m: number): number {
     }
   }
   return 300;
+}
+
+/** Розрахункові розміри пластин: звис полиці (bef) та стінка (hef) — п. 8.3.1, 8.3.6. */
+function plates(s: Section) {
+  const fl = s.elements.find((e) => e.role === "flange");
+  const web = s.elements.find((e) => e.role === "web");
+  return { fl, web };
+}
+
+/** Місцева стійкість згинних елементів 1 класу: стінка п. 9.5.1, стиснутий пояс п. 9.5.14 (9.48), (9.49). */
+export function localBeamDBN(s: Section, MEd: number, Ry: number, gc: number, E: number): Check[] {
+  const out: Check[] = [];
+  if (s.kind !== "I" && s.kind !== "C" && s.kind !== "RHS") return out;
+  const { fl, web } = plates(s);
+  const k = Math.sqrt(Ry / E);
+  if (web) {
+    const lw = (web.c / web.t) * k;
+    out.push(mkCheck("localWeb", `${CL}, п. 9.5.1`, "λ̄_w = (h_ef/t_w)·√(R_y/E) ≤ 3.5",
+      `h_ef = ${f(web.c, 1)} mm; t_w = ${f(web.t, 1)} mm; λ̄_w = ${f(lw, 3)} ≤ 3.5`, lw / 3.5, ["localWebRolled"]));
+  }
+  if (fl) {
+    const sc = Math.min(MEd / (s.Wy * gc), Ry);
+    const box = fl.support === "internal";
+    const lf = (fl.c / fl.t) * k;
+    const lu = (box ? 1.5 : 0.5) * Math.sqrt(Ry / sc);
+    out.push(mkCheck("localFlange", `${CL}, п. 9.5.14, ф. (${box ? "9.49" : "9.48"})`,
+      box ? "λ̄_f,1 ≤ λ̄_uf,1 = 1.5·√(R_y/σ_c)" : "λ̄_f = (b_ef/t_f)·√(R_y/E) ≤ λ̄_uf = 0.5·√(R_y/σ_c)",
+      `b_ef = ${f(fl.c, 1)} mm; t_f = ${f(fl.t, 1)} mm; σ_c = ${f(sc, 1)} MPa; λ̄_f = ${f(lf, 3)} ≤ ${f(lu, 3)}`, lf / lu));
+  }
+  return out;
+}
+
+/** Місцева стійкість центрально-стиснутих елементів: стінка табл. 8.3, звис полиці табл. 8.4. */
+export function localColumnDBN(s: Section, lamBar: number, Ry: number, E: number): Check[] {
+  const out: Check[] = [];
+  if (s.kind !== "I" && s.kind !== "C" && s.kind !== "RHS") return out;
+  const { fl, web } = plates(s);
+  const k = Math.sqrt(Ry / E);
+  const l = lamBar;
+  let luw: number, fw: string;
+  if (s.kind === "I") { luw = l <= 2 ? 1.3 + 0.15 * l * l : Math.min(1.2 + 0.35 * l, 2.5); fw = l <= 2 ? "(8.19)" : "(8.20)"; }
+  else if (s.kind === "RHS") { luw = l <= 1 ? 1.2 : Math.min(1.0 + 0.2 * l, 1.6); fw = l <= 1 ? "(8.21)" : "(8.22)"; }
+  else { luw = l <= 0.8 ? 1.0 : Math.min(0.85 + 0.19 * l, 1.6); fw = l <= 0.8 ? "(8.23)" : "(8.24)"; }
+  if (web) {
+    const lw = (web.c / web.t) * k;
+    out.push(mkCheck("localWeb", `${CL}, п. 8.3.2, табл. 8.3 ${fw}`, "λ̄_w ≤ λ̄_uw",
+      `h_ef/t_w = ${f(web.c / web.t, 1)}; λ̄_w = ${f(lw, 3)}; λ̄ = ${f(l, 3)}; λ̄_uw = ${f(luw, 3)}`, lw / luw, ["sectionTypeFigure"]));
+  }
+  if (fl) {
+    const lf = (fl.c / fl.t) * k;
+    let luf: number, ff: string;
+    if (fl.support === "internal") { luf = luw; ff = "п. 8.3.8"; }
+    else { const lc = Math.min(Math.max(l, 0.8), 4); luf = 0.36 + 0.1 * lc; ff = "табл. 8.4"; }
+    out.push(mkCheck("localFlange", `${CL}, ${ff}`, "λ̄_f = (b_ef/t_f)·√(R_y/E) ≤ λ̄_uf",
+      `b_ef/t_f = ${f(fl.c / fl.t, 1)}; λ̄_f = ${f(lf, 3)}; λ̄_uf = ${f(luf, 3)}`, lf / luf, ["sectionTypeFigure"]));
+  }
+  return out;
 }

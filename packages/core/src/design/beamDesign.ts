@@ -25,7 +25,7 @@ export interface LoadMeta {
 }
 
 export type UserLoad =
-  | (LoadMeta & { type: "udl"; q: number; from?: number; to?: number }) // кН/м, м
+  | (LoadMeta & { type: "udl"; q: number; q2?: number; from?: number; to?: number }) // кН/м, м; q2 — в конце участка (трапеция)
   | (LoadMeta & { type: "point"; P: number; x: number }) // кН, м
   | (LoadMeta & { type: "moment"; M: number; x: number }); // кН·м, м
 
@@ -34,6 +34,8 @@ export interface BeamDesignInput {
   steel: string;
   spans: number[]; // м
   supports: SupportType[];
+  /** жесткость упругих опор, кН/м (по индексу опоры, для типа «spring») */
+  springs?: number[];
   loads: UserLoad[];
   selfWeight: boolean;
   gammaG: number;
@@ -75,7 +77,7 @@ export interface BeamDesignResult {
 }
 
 function toCore(l: UserLoad, factor: number): BeamLoad {
-  if (l.type === "udl") return { type: "udl", q: l.q * factor, from: l.from != null ? l.from * 1000 : undefined, to: l.to != null ? l.to * 1000 : undefined };
+  if (l.type === "udl") return { type: "udl", q: l.q * factor, q2: l.q2 != null ? l.q2 * factor : undefined, from: l.from != null ? l.from * 1000 : undefined, to: l.to != null ? l.to * 1000 : undefined };
   if (l.type === "point") return { type: "point", P: l.P * 1000 * factor, x: l.x * 1000 };
   return { type: "moment", M: l.M * 1e6 * factor, x: l.x * 1000 };
 }
@@ -104,12 +106,12 @@ export function designBeam(inp: BeamDesignInput, section: Section): BeamDesignRe
   const fac = (l: UserLoad) => l.gf ?? (l.cat === "G" ? inp.gammaG : inp.gammaQ);
   // Временные нагрузки разного знака (напр. снег и отсос ветра) не складываются:
   // сочетание 1 — G + Q, направленные вниз; сочетание 2 — G с γf для благоприятного действия + Q вверх.
-  const sign = (l: UserLoad) => (l.type === "udl" ? l.q : l.type === "point" ? l.P : 1);
+  const sign = (l: UserLoad) => (l.type === "udl" ? l.q + (l.q2 ?? l.q) : l.type === "point" ? l.P : 1);
   const qDown = all.filter((l) => l.cat === "G" || sign(l) >= 0);
   const qUp = all.filter((l) => l.cat === "Q" && sign(l) < 0);
   const gFav = inp.code === "DBN" ? 0.9 : 1.0;
   const run = (ls: UserLoad[], f: (l: UserLoad) => number) =>
-    analyzeBeam({ spans, supports: inp.supports, EI, loads: ls.map((l) => toCore(l, f(l))) });
+    analyzeBeam({ spans, supports: inp.supports, springs: inp.springs, EI, loads: ls.map((l) => toCore(l, f(l))) });
   const mAbs = (b: BeamResult) => Math.max(Math.abs(b.Mmax), Math.abs(b.Mmin));
   const wAbs = (b: BeamResult) => Math.max(...b.spanDeflections.map((d) => Math.abs(d.w) / d.Lref));
   let uls = run(qDown, fac), sls = run(qDown, (l) => l.gfe ?? 1);

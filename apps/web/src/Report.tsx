@@ -12,7 +12,7 @@ export function Report({ r, input, t, obj, elem, steel, code }: {
     const cat = (l.label ? `${l.label} · ` : "") + t(`cat_${l.cat}`) + (l.gf != null ? ` (γfm = ${l.gf}${l.gfe != null ? `, γfe = ${l.gfe}` : ""})` : "");
     if (l.type === "udl") {
       const range = l.from != null || l.to != null ? ` (${l.from ?? 0}…${l.to ?? "L"} m)` : "";
-      return `${cat}: q = ${l.q} kN/m${range}`;
+      return `${cat}: q = ${l.q2 != null ? `${l.q}…${l.q2}` : l.q} kN/m${range}`;
     }
     if (l.type === "point") return `${cat}: P = ${l.P} kN, x = ${l.x} m`;
     return `${cat}: M = ${l.M} kN·m, x = ${l.x} m`;
@@ -46,7 +46,7 @@ export function Report({ r, input, t, obj, elem, steel, code }: {
       <table className="rep-table">
         <tbody>
           <tr><td>{t("rep_spans")}</td><td>{input.spans.map((s) => `${s} m`).join(" + ")}</td></tr>
-          <tr><td>{t("rep_supports")}</td><td>{input.supports.map((s) => t(`sup_${s}`)).join(" — ")}</td></tr>
+          <tr><td>{t("rep_supports")}</td><td>{input.supports.map((s, i) => t(`sup_${s}`) + (s === "spring" ? ` (k = ${input.springs?.[i] ?? 0} kN/m)` : "")).join(" — ")}</td></tr>
           <tr><td>{t("rep_loadsList")}</td><td>{input.loads.map((l, i) => <div key={i}>{loadText(l)}</div>)}</td></tr>
           {input.loads.some((l) => l.note) && (
             <tr><td>{t("rep_loadsDerivation")}</td><td>{input.loads.filter((l) => l.note).map((l, i) => <div key={i} className="rep-note">{l.note}</div>)}</td></tr>
