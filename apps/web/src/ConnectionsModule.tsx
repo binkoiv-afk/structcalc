@@ -6,7 +6,7 @@ import {
 import { CheckList, governing, pct, T, utilState } from "./Results";
 
 export type ConnKind = "fillet" | "butt" | "bolts" | "friction" | "rivets" | "screws" | "anchors";
-const KINDS: ConnKind[] = ["fillet", "butt", "bolts", "friction", "rivets", "screws", "anchors"];
+export const KINDS: ConnKind[] = ["fillet", "butt", "bolts", "friction", "rivets", "screws", "anchors"];
 
 export interface ConnState {
   kind: ConnKind | null;
@@ -39,11 +39,17 @@ export const initialConn: ConnState = {
   aN: 15, aMx: 0, aMy: 5, aVx: 10, aVy: 0, aT: 0, aStandoff: 0, aNRkp: "", aTau: 7, aTauU: 12, aCcrSp: "", aHmin: "", aGinst: "", aEdgeReinf: false, aDh: "",
 };
 
+/** выбор типа: подставляет типовые толщины (саморезы — тонкий лист) */
+export function pickKind(s: ConnState, k: ConnKind): Partial<ConnState> {
+  if (k === "screws") return s.t1 > 3 ? { kind: k, t1: 0.7, t2: 2 } : { kind: k };
+  return k !== "anchors" && s.t1 < 3 ? { kind: k, t1: 10, t2: 10 } : { kind: k };
+}
+
 const num = (v: string) => (v.trim() === "" ? 0 : Number(v.replace(",", ".")));
 const edge = (v: string) => (v.trim() === "" ? Infinity : num(v));
 const opt = (v: string) => (v.trim() === "" ? undefined : num(v));
 
-const ICONS: Record<ConnKind, JSX.Element> = {
+export const CONN_ICONS: Record<ConnKind, JSX.Element> = {
   fillet: <><path d="M6 36h36M24 36V8" strokeWidth="3" /><path d="M18 36l6-6 6 6z" className="fillicon" /></>,
   butt: <><path d="M4 22h18M26 22h18M4 30h18M26 30h18" strokeWidth="3" /><path d="M22 18l2 4 2-4M22 34l2-4 2 4" /></>,
   bolts: <><path d="M6 16h36M6 32h36" strokeWidth="3" /><path d="M16 10v28M32 10v28" strokeWidth="4" /></>,
@@ -150,6 +156,8 @@ export function ConnectionsModule({ code, s, set, t }: { code: CodeId; s: ConnSt
   const tmin = Math.min(s.t1, s.t2), tmax = Math.max(s.t1, s.t2);
   const Ryn = steel.yieldChar(tmax), Run = steel.ultimate(tmax), Ry = steel.strength(tmax);
 
+  // фрикційні: ДБН — сталь 40Х «селект»; EN — лише попередньо напружені класи 8.8 / 10.9
+  const fricClass = s.kind !== "friction" ? undefined : code === "DBN" ? "40X" : ["8.8", "10.9"].includes(s.bClass) ? s.bClass : "10.9";
   const calc = useMemo((): { r?: ConnResult; err?: string; forces?: number[] } => {
     try {
       const kN = 1000, kNm = 1e6;
@@ -161,7 +169,7 @@ export function ConnectionsModule({ code, s, set, t }: { code: CodeId; s: ConnSt
           return { r: checkButt({ code, t: tmin, L: s.bL, runOff: s.bRunOff, physicalControl: s.bCtrl, Ry, N: s.bN * kN, V: s.bV * kN, M: s.bM * kNm, gammaC: s.gammaC, gammaN: s.gammaN }) };
         case "bolts": case "friction": case "rivets": {
           const kind = s.kind === "bolts" ? "bearing" : s.kind === "friction" ? "friction" : "rivet";
-          return { r: checkBolts({ code, kind, d: s.d, boltClass: s.kind === "friction" && code === "DBN" ? "40X" : s.bClass, accuracyA: s.accA, shearPlanes: s.planes, tmin,
+          return { r: checkBolts({ code, kind, d: s.d, boltClass: fricClass ?? s.bClass, accuracyA: s.accA, shearPlanes: s.planes, tmin,
             Ryn, Run, group: { rows: s.rows, cols: s.cols, px: s.px, py: s.py }, a: s.ea, e2: s.e2,
             Fx: s.Fx * kN, Fy: s.Fy * kN, M: s.Mb * kNm, T: s.Tb * kN, mu: s.mu, fur: s.fur, gammaC: s.gammaC, gammaN: s.gammaN }) };
         }
@@ -179,7 +187,7 @@ export function ConnectionsModule({ code, s, set, t }: { code: CodeId; s: ConnSt
       }
       return {};
     } catch (e) { return { err: String((e as Error).message) }; }
-  }, [code, s, Run, Ryn, Ry, tmin, tmax]);
+  }, [code, s, Run, Ryn, Ry, tmin, tmax, fricClass]);
 
   if (!s.kind) {
     return (
@@ -188,8 +196,8 @@ export function ConnectionsModule({ code, s, set, t }: { code: CodeId; s: ConnSt
         <p className="home-sub">{t("conn_pick_sub")}</p>
         <div className="cards">
           {KINDS.map((k) => (
-            <button key={k} id={`conn-${k}`} className="card" onClick={() => set(k === "screws" ? { kind: k, t1: 0.7, t2: 2 } : k !== "anchors" && s.t1 < 3 ? { kind: k, t1: 10, t2: 10 } : { kind: k })}>
-              <svg viewBox="0 0 48 48" className="card-icon" aria-hidden="true">{ICONS[k]}</svg>
+            <button key={k} id={`conn-${k}`} className="card" onClick={() => set(pickKind(s, k))}>
+              <svg viewBox="0 0 48 48" className="card-icon" aria-hidden="true">{CONN_ICONS[k]}</svg>
               <span className="card-title">{t(`conn_${k}`)}</span>
               <span className="card-desc">{t(`conn_${k}_d`)}</span>
             </button>
@@ -271,7 +279,7 @@ export function ConnectionsModule({ code, s, set, t }: { code: CodeId; s: ConnSt
         {kind === "rivets"
           ? <Num id="bfur" label="f_ur, MPa" v={s.fur} on={(v) => set({ fur: num(v) })} />
           : classes.length > 0
-            ? <label><span className="lbl">{t("bo_class")}</span><select id="bclass" value={s.bClass} onChange={(e) => set({ bClass: e.target.value })}>{classes.map((c) => <option key={c}>{c}</option>)}</select></label>
+            ? <label><span className="lbl">{t("bo_class")}</span><select id="bclass" value={fricClass ?? s.bClass} onChange={(e) => set({ bClass: e.target.value })}>{classes.map((c) => <option key={c}>{c}</option>)}</select></label>
             : <label><span className="lbl">{t("bo_class")}</span><input disabled value="40Х «селект»" /></label>}
         <Num id="bcols" label={t("bo_cols")} v={s.cols} on={(v) => set({ cols: Math.max(1, Math.round(num(v))) })} />
         <Num id="brows" label={t("bo_rows")} v={s.rows} on={(v) => set({ rows: Math.max(1, Math.round(num(v))) })} />
@@ -300,7 +308,7 @@ export function ConnectionsModule({ code, s, set, t }: { code: CodeId; s: ConnSt
       </details>
     </>;
     scheme = <GroupScheme nx={s.cols} ny={s.rows} sx={s.px} sy={s.py} ex={s.ea} ey={s.e2} d={s.d + 2} Fx={s.Fx} Fy={s.Fy} />;
-    sub = `${s.cols * s.rows} × ${kind === "rivets" ? "⌀" : "M"}${s.d}${kind === "rivets" ? "" : ` · ${kind === "friction" && code === "DBN" ? "40Х" : s.bClass}`}`;
+    sub = `${s.cols * s.rows} × ${kind === "rivets" ? "⌀" : "M"}${s.d}${kind === "rivets" ? "" : ` · ${fricClass === "40X" ? "40Х" : fricClass ?? s.bClass}`}`;
   } else if (kind === "screws") {
     form = <>
       <fieldset><legend><span className="step">1</span>{t("conn_geom")}</legend><div className="grid2">

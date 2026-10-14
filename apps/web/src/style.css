@@ -285,3 +285,6 @@ label.chk input { width: auto; }
 .conn-values { width: 100%; border-collapse: collapse; }
 .conn-values td { padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
 .conn-values td.mono { font-family: var(--mono); white-space: nowrap; text-align: right; }
+.home-hint { margin: -4px 0 10px; color: var(--muted); font-size: 13px; }
+.cards .card.compact { padding: 12px 14px; }
+.cards .card.compact .card-icon { width: 30px; height: 30px; }

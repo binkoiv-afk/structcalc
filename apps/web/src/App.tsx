@@ -5,8 +5,7 @@ import { Home, Screen } from "./Home";
 import { BeamModule, BeamState, initialBeam } from "./BeamModule";
 import { ColumnModule, ColumnState, initialColumn } from "./ColumnModule";
 import { SectionModule, SectionState, initialSection } from "./SectionModule";
-import { LoadsModule } from "./LoadsModule";
-import { ConnectionsModule, ConnState, initialConn } from "./ConnectionsModule";
+import { ConnectionsModule, ConnKind, ConnState, initialConn, pickKind } from "./ConnectionsModule";
 import { CollectorState, initialCollector } from "./LoadCollector";
 
 interface AppState {
@@ -23,7 +22,7 @@ function loadState(): AppState {
     if (raw) {
       const o = JSON.parse(raw);
       return {
-        ...initial, ...o, beam: { ...initialBeam, ...o.beam }, column: { ...initialColumn, ...o.column },
+        ...initial, ...o, screen: o.screen === "loads" ? "home" : o.screen, beam: { ...initialBeam, ...o.beam }, column: { ...initialColumn, ...o.column },
         lc: { ...initialCollector, ...o.lc }, sec: { ...initialSection, ...o.sec }, conn: { ...initialConn, ...o.conn },
       };
     }
@@ -44,7 +43,10 @@ export function App() {
     return n;
   });
   const t = makeT(s.lang);
-  const go = (screen: Screen) => { set({ screen }); window.scrollTo(0, 0); };
+  const go = (screen: Screen, conn?: ConnKind) => {
+    set(conn ? { screen, conn: { ...s.conn, ...pickKind(s.conn, conn) } } : { screen });
+    window.scrollTo(0, 0);
+  };
   const setCode = (code: CodeId) => {
     const steel = code === "DBN" ? "C245" : "S235";
     set({ code, beam: { ...s.beam, steel, ...DEFAULT_FACTORS[code] }, column: { ...s.column, steel } });
@@ -61,7 +63,7 @@ export function App() {
           {s.screen !== "home" && (
             <>
               <span className="crumb-sep">/</span>
-              <span className="module">{t(`mod_${s.screen}`)}</span>
+              <span className="module">{t(`mod_${s.screen}`)}{s.screen === "connection" && s.conn.kind ? ` · ${t(`conn_${s.conn.kind}`)}` : ""}</span>
             </>
           )}
         </div>
@@ -86,10 +88,6 @@ export function App() {
       {s.screen === "column" && <ColumnModule code={s.code} s={s.column} set={(p) => set({ column: { ...s.column, ...p } })} t={t} />}
       {s.screen === "connection" && <ConnectionsModule code={s.code} s={s.conn} set={(p) => set({ conn: { ...s.conn, ...p } })} t={t} />}
       {s.screen === "section" && <SectionModule code={s.code} s={s.sec} set={(p) => set({ sec: { ...s.sec, ...p } })} t={t} />}
-      {s.screen === "loads" && (
-        <LoadsModule code={s.code} c={s.lc} set={(p) => set({ lc: { ...s.lc, ...p } })} t={t}
-          onAdd={(l) => { set({ beam: { ...s.beam, loads: [...s.beam.loads, l] }, screen: "beam" }); window.scrollTo(0, 0); }} />
-      )}
     </div>
   );
 }

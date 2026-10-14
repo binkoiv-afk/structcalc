@@ -2,6 +2,13 @@
 type Dict = Record<string, string>;
 
 const uk: Dict = {
+  grp_members: "Елементи конструкцій", grp_members_h: "Сніг, вітер і сполучення навантажень збираються на кроці «Навантаження» всередині елемента.",
+  grp_conn: "Вузли і з'єднання", grp_conn_h: "Окремі перевірки з'єднань за зусиллями з розрахунку елемента.",
+  grp_ref: "Довідники", grp_soon: "У розробці",
+  mod_truss: "Ферма", mod_truss_d: "Зусилля в стрижнях, перевірка поясів і решітки",
+  mod_frame: "Рама", mod_frame_d: "Плоска рама МСЕ, розрахункові довжини колон",
+  mod_basePlate: "База колони", mod_basePlate_d: "Опорна плита, анкери, бетон під плитою",
+  mod_joints: "Вузли балка–колона", mod_joints_d: "Шарнірні та жорсткі вузли, торцеві плити",
   conn_type: "Тип з'єднання", conn_pick: "Що розраховуємо?", conn_pick_sub: "Оберіть тип з'єднання — відкриються лише потрібні для нього поля.",
   conn_change: "Інший тип з'єднання", conn_geom: "Геометрія", conn_mat: "Матеріали і товщини", conn_values: "Проміжні величини",
   connPlaceholder: "Вузол / з'єднання", rep_titleConn: "Розрахунок з'єднання",
@@ -59,6 +66,13 @@ const uk: Dict = {
 };
 
 const ru: Dict = {
+  grp_members: "Элементы конструкций", grp_members_h: "Снег, ветер и сочетания собираются на шаге «Нагрузки» внутри элемента.",
+  grp_conn: "Узлы и соединения", grp_conn_h: "Отдельные проверки соединений по усилиям из расчёта элемента.",
+  grp_ref: "Справочники", grp_soon: "В разработке",
+  mod_truss: "Ферма", mod_truss_d: "Усилия в стержнях, проверка поясов и решётки",
+  mod_frame: "Рама", mod_frame_d: "Плоская рама МКЭ, расчётные длины колонн",
+  mod_basePlate: "База колонны", mod_basePlate_d: "Опорная плита, анкеры, бетон под плитой",
+  mod_joints: "Узлы балка–колонна", mod_joints_d: "Шарнирные и жёсткие узлы, торцевые плиты",
   conn_type: "Тип соединения", conn_pick: "Что рассчитываем?", conn_pick_sub: "Выберите тип соединения — откроются только нужные для него поля.",
   conn_change: "Другой тип соединения", conn_geom: "Геометрия", conn_mat: "Материалы и толщины", conn_values: "Промежуточные величины",
   connPlaceholder: "Узел / соединение", rep_titleConn: "Расчёт соединения",
@@ -116,6 +130,13 @@ const ru: Dict = {
 };
 
 const en: Dict = {
+  grp_members: "Structural members", grp_members_h: "Snow, wind and combinations are collected in the Loads step inside each member.",
+  grp_conn: "Joints and connections", grp_conn_h: "Stand-alone connection checks for forces from the member design.",
+  grp_ref: "Reference", grp_soon: "Coming soon",
+  mod_truss: "Truss", mod_truss_d: "Member forces, chord and web checks",
+  mod_frame: "Frame", mod_frame_d: "2D frame FEM, column effective lengths",
+  mod_basePlate: "Column base", mod_basePlate_d: "Base plate, anchors, concrete bearing",
+  mod_joints: "Beam–column joints", mod_joints_d: "Pinned and moment joints, end plates",
   conn_type: "Connection type", conn_pick: "What are we designing?", conn_pick_sub: "Pick a connection type — only the fields it needs will open.",
   conn_change: "Another connection type", conn_geom: "Geometry", conn_mat: "Materials and thicknesses", conn_values: "Intermediate values",
   connPlaceholder: "Joint / connection", rep_titleConn: "Connection design",
