@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import {
-  CodeId, ColumnDesignInput, designColumn, END_CONDITIONS, FAMILIES, familySections, findSection, selectColumn, STEELS,
+  CodeId, ColumnDesignInput, designColumn, END_CONDITIONS, familiesFor, familySections, findSection, selectColumn, STEELS,
 } from "@structcalc/core";
 import { CheckList, SectionProps, Summary } from "./Results";
 import { TriedList } from "./TriedList";
+import { FamilyOptions } from "./SectionModule";
 import { SectionDrawing } from "./SectionDrawing";
 
 export interface ColumnState {
@@ -101,7 +102,7 @@ export function ColumnModule({ code, s, set, t }: { code: CodeId; s: ColumnState
             </label>
             <label className="wide"><span className="lbl">{t("family")}</span>
               <select id="cfam" value={s.family} onChange={(e) => set({ family: e.target.value, size: familySections(e.target.value)[0].name })}>
-                {FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.id === "CUSTOM" ? t("fam_CUSTOM") : `${f.id.replace("_", " ")} · ${f.standard}`}</option>)}
+                <FamilyOptions fams={familiesFor("column")} t={t} />
               </select>
             </label>
             {s.mode === "check" && (

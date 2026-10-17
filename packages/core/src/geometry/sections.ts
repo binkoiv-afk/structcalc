@@ -119,6 +119,40 @@ export function iSection(name: string, h: number, b: number, tw: number, tf: num
   );
 }
 
+/** Двотавр з різними полицями: верхня bt × tft, нижня bb × tfb, стінка tw, радіус (або катет шва) r.
+ *  Для моносиметричного перерізу Iw = h_s²·I1·I2/(I1 + I2). */
+export function iAsymSection(name: string, h: number, bt: number, tft: number, bb: number, tfb: number, tw: number, r: number,
+  opts: { family?: string; fabrication?: "hot" | "welded" } = {}): Section {
+  const H = h / 2, T = tw / 2;
+  const p: Pt[] = [
+    { x: -bb / 2, y: -H }, { x: bb / 2, y: -H }, { x: bb / 2, y: -H + tfb },
+    ...arc(T + r, -H + tfb + r, r, -PI / 2, -PI),
+    ...arc(T + r, H - tft - r, r, PI, PI / 2),
+    { x: bt / 2, y: H - tft }, { x: bt / 2, y: H }, { x: -bt / 2, y: H }, { x: -bt / 2, y: H - tft },
+    ...arc(-T - r, H - tft - r, r, PI / 2, 0),
+    ...arc(-T - r, -H + tfb + r, r, 0, -PI / 2),
+    { x: -bb / 2, y: -H + tfb },
+  ];
+  const fab = opts.fabrication ?? "welded";
+  const hw = h - tft - tfb;
+  const It = (bt * tft ** 3 + bb * tfb ** 3 + hw * tw ** 3) / 3;
+  const I1 = (tft * bt ** 3) / 12, I2 = (tfb * bb ** 3) / 12, hs = h - (tft + tfb) / 2;
+  const Iw = (hs * hs * I1 * I2) / (I1 + I2);
+  const b = Math.max(bt, bb), tf = Math.max(tft, tfb);
+  return finish(
+    {
+      kind: "I", name, family: opts.family, dims: { h, b, bt, tft, bb, tfb, tw, tf, r }, fabrication: fab, h, b,
+      It, Iw, Avz: hw * tw, tWeb: tw,
+      elements: [
+        { role: "flange", support: "outstand", c: (b - tw - 2 * r) / 2, t: Math.min(tft, tfb) },
+        { role: "web", support: "internal", c: hw - 2 * r, t: tw },
+      ],
+      ltbProne: true, approx: bt !== bb || tft !== tfb ? "mono" : undefined,
+    },
+    [p],
+  );
+}
+
 function roundedRect(w: number, h: number, r: number, seg = 16): Pt[] {
   const W = w / 2, H = h / 2;
   return [

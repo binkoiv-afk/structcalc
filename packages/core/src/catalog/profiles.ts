@@ -1,12 +1,18 @@
 // Сортамент. Характеристики считаются из размеров (см. geometry/sections.ts),
 // поэтому здесь хранятся только размеры по стандартам.
 
-import { chsSection, iSection, rhsSection, Section } from "../geometry/sections";
+import { angleSection, channelSection, chsSection, iSection, rhsSection, Section } from "../geometry/sections";
 
 export interface Family {
   id: string;
   /** стандарт */
   standard: string;
+  /** походження: вітчизняний (ДСТУ/ГОСТ), європейський (EN), обидва, користувацький */
+  origin?: "UA" | "EU" | "both" | "custom";
+  /** форма: двотавр, швелер, кутик, труби */
+  shape?: "I" | "C" | "L" | "RHS" | "CHS";
+  /** розміри внесено без звірки з офіційним текстом стандарту — показуємо попередження */
+  verify?: boolean;
   build: () => Section[];
 }
 
@@ -58,24 +64,98 @@ const CHS: [number, number][] = [
   [139.7, 5], [168.3, 5], [168.3, 6], [219.1, 6], [219.1, 8], [273, 8], [323.9, 8],
 ];
 
+
+// ГОСТ 26020-83 (двотаври з паралельними гранями полиць): №, h, b, s, t, R
+const G26020_B: [string, number, number, number, number, number][] = [
+  ["10Б1", 100, 55, 4.1, 5.7, 7], ["12Б1", 117.6, 64, 3.8, 5.1, 7], ["12Б2", 120, 64, 4.4, 6.3, 7], ["14Б1", 137.4, 73, 3.8, 5.6, 7],
+  ["14Б2", 140, 73, 4.7, 6.9, 7], ["16Б1", 157, 82, 4, 5.9, 9], ["16Б2", 160, 82, 5, 7.4, 9], ["18Б1", 177, 91, 4.3, 6.5, 9],
+  ["18Б2", 180, 91, 5.3, 8, 9], ["20Б1", 200, 100, 5.6, 8.5, 12], ["23Б1", 230, 110, 5.6, 9, 12], ["26Б1", 258, 120, 5.8, 8.5, 12],
+  ["26Б2", 261, 120, 6, 10, 12], ["30Б1", 296, 140, 5.8, 8.5, 15], ["30Б2", 299, 140, 6, 10, 15], ["35Б1", 346, 155, 6.2, 8.5, 18],
+  ["35Б2", 349, 155, 6.5, 10, 18], ["40Б1", 392, 165, 7, 9.5, 21], ["40Б2", 396, 165, 7.5, 11.5, 21], ["45Б1", 443, 180, 7.8, 11, 21],
+  ["45Б2", 447, 180, 8.4, 13, 21], ["50Б1", 492, 200, 8.8, 12, 21], ["50Б2", 496, 200, 9.2, 14, 21], ["55Б1", 543, 220, 9.5, 13.5, 24],
+  ["60Б1", 593, 230, 10.5, 15.5, 24], ["70Б1", 691, 260, 12, 15.5, 26],
+];
+const G26020_SH: [string, number, number, number, number, number][] = [
+  ["20Ш1", 193, 150, 6, 9, 13], ["23Ш1", 226, 155, 6.5, 10, 14], ["26Ш1", 251, 180, 7, 10, 16], ["26Ш2", 255, 180, 7.5, 12, 16],
+  ["30Ш1", 291, 200, 8, 11, 18], ["30Ш2", 295, 200, 8.5, 13, 18], ["35Ш1", 338, 250, 9.5, 12.5, 20], ["35Ш2", 341, 250, 10, 14, 20],
+  ["40Ш1", 388, 300, 9.5, 14, 22], ["40Ш2", 392, 300, 11.5, 16, 22], ["50Ш1", 484, 300, 11, 15, 26], ["60Ш1", 580, 320, 12, 17, 28],
+];
+const G26020_K: [string, number, number, number, number, number][] = [
+  ["20К1", 195, 200, 6.5, 10, 13], ["20К2", 198, 200, 7, 11.5, 13], ["23К1", 227, 240, 7, 10.5, 14], ["26К1", 255, 260, 8, 12, 16],
+  ["26К2", 258, 260, 9, 13.5, 16], ["30К1", 296, 300, 9, 13.5, 18], ["30К2", 300, 300, 10, 15.5, 18], ["35К1", 343, 350, 10, 15, 20],
+  ["35К2", 348, 350, 11, 17.5, 20], ["40К1", 393, 400, 11, 16.5, 22], ["40К2", 400, 400, 13, 20, 22],
+];
+// ГОСТ 8240-97 швелери: №, h, b, s, t, R (серія У — з ухилом полиць, серія П — паралельні)
+const G8240: [number, number, number, number, number, number][] = [
+  [5, 50, 32, 4.4, 7.0, 6], [6.5, 65, 36, 4.4, 7.2, 6], [8, 80, 40, 4.5, 7.4, 6.5], [10, 100, 46, 4.5, 7.6, 7], [12, 120, 52, 4.8, 7.8, 7.5],
+  [14, 140, 58, 4.9, 8.1, 8], [16, 160, 64, 5.0, 8.4, 8.5], [18, 180, 70, 5.1, 8.7, 9], [20, 200, 76, 5.2, 9.0, 9.5], [22, 220, 82, 5.4, 9.5, 10],
+  [24, 240, 90, 5.6, 10.0, 10.5], [27, 270, 95, 6.0, 10.5, 11], [30, 300, 100, 6.5, 11.0, 12], [33, 330, 105, 7.0, 11.7, 13],
+  [36, 360, 110, 7.5, 12.6, 14], [40, 400, 115, 8.0, 13.5, 15],
+];
+// EN 10365 UPN: h, b, tw, tf, r
+const UPN: [number, number, number, number, number][] = [
+  [80, 45, 6, 8, 8], [100, 50, 6, 8.5, 8.5], [120, 55, 7, 9, 9], [140, 60, 7, 10, 10], [160, 65, 7.5, 10.5, 10.5], [180, 70, 8, 11, 11],
+  [200, 75, 8.5, 11.5, 11.5], [220, 80, 9, 12.5, 12.5], [240, 85, 9.5, 13, 13], [260, 90, 10, 14, 14], [280, 95, 10, 15, 15], [300, 100, 10, 16, 16],
+];
+// ГОСТ 8509-93 рівнополичні кутики: b, t, R
+const G8509: [number, number, number][] = [
+  [25, 3, 3.5], [32, 3, 4.5], [32, 4, 4.5], [40, 4, 5], [40, 5, 5], [45, 4, 5], [50, 4, 5.5], [50, 5, 5.5], [56, 4, 6], [56, 5, 6],
+  [63, 5, 7], [63, 6, 7], [70, 5, 8], [70, 6, 8], [70, 7, 8], [75, 5, 9], [75, 6, 9], [75, 8, 9], [80, 6, 9], [80, 8, 9],
+  [90, 6, 10], [90, 7, 10], [90, 8, 10], [100, 7, 12], [100, 8, 12], [100, 10, 12], [100, 12, 12], [110, 8, 12], [125, 8, 14], [125, 10, 14],
+  [125, 12, 14], [140, 10, 14], [140, 12, 14], [160, 10, 16], [160, 12, 16], [160, 14, 16], [180, 12, 16], [200, 12, 18], [200, 14, 18], [200, 16, 18],
+];
+// ГОСТ 8510-86 нерівнополичні кутики: B, b, t, R
+const G8510: [number, number, number, number][] = [
+  [63, 40, 5, 7], [75, 50, 5, 8], [75, 50, 6, 8], [80, 50, 6, 8], [90, 56, 6, 9], [100, 63, 6, 10], [100, 63, 8, 10],
+  [125, 80, 8, 11], [125, 80, 10, 11], [140, 90, 8, 12], [140, 90, 10, 12], [160, 100, 10, 13], [160, 100, 12, 13], [200, 125, 12, 14], [200, 125, 14, 14],
+];
+// EN 10056-1 рівнополичні кутики: b, t, r1
+const L_EN: [number, number, number][] = [
+  [40, 4, 6], [45, 4.5, 7], [50, 5, 7], [60, 6, 8], [70, 7, 9], [80, 8, 10], [90, 9, 11], [100, 10, 12], [120, 10, 13], [120, 12, 13],
+  [150, 12, 16], [150, 15, 16], [200, 16, 18], [200, 20, 18],
+];
+const withApprox = (s: Section, a?: string) => { if (a) s.approx = a; return s; };
+
 export const FAMILIES: Family[] = [
-  { id: "IPE", standard: "EN 10365", build: () => IPE.map(([n, h, b, tw, tf, r]) => iSection(`IPE ${n}`, h, b, tw, tf, r, { family: "IPE" })) },
-  { id: "HEA", standard: "EN 10365", build: () => HEA.map(([n, h, b, tw, tf, r]) => iSection(`HEA ${n}`, h, b, tw, tf, r, { family: "HEA" })) },
-  { id: "HEB", standard: "EN 10365", build: () => HEB.map(([n, h, b, tw, tf, r]) => iSection(`HEB ${n}`, h, b, tw, tf, r, { family: "HEB" })) },
+  { id: "IPE", standard: "EN 10365", origin: "EU", shape: "I", build: () => IPE.map(([n, h, b, tw, tf, r]) => iSection(`IPE ${n}`, h, b, tw, tf, r, { family: "IPE" })) },
+  { id: "HEA", standard: "EN 10365", origin: "EU", shape: "I", build: () => HEA.map(([n, h, b, tw, tf, r]) => iSection(`HEA ${n}`, h, b, tw, tf, r, { family: "HEA" })) },
+  { id: "HEB", standard: "EN 10365", origin: "EU", shape: "I", build: () => HEB.map(([n, h, b, tw, tf, r]) => iSection(`HEB ${n}`, h, b, tw, tf, r, { family: "HEB" })) },
   {
-    id: "I_GOST8239", standard: "ГОСТ 8239-89",
+    id: "I_GOST8239", standard: "ГОСТ 8239-89", origin: "UA", shape: "I",
     build: () => GOST8239.map(([n, h, b, s, t, R]) =>
       iSection(`I ${n}`, h, b, s, t, R, { family: "I_GOST8239", approx: "slope" })),
   },
   {
-    id: "RHS_COLD", standard: "EN 10219 / ГОСТ 30245",
+    id: "RHS_COLD", standard: "EN 10219 / ГОСТ 30245", origin: "both", shape: "RHS",
     build: () => RHS.map(([h, b, t]) => rhsSection(`${h}×${b}×${t}`, h, b, t, { family: "RHS_COLD", fabrication: "cold" })),
   },
   {
-    id: "CHS_COLD", standard: "EN 10219",
+    id: "CHS_COLD", standard: "EN 10219", origin: "EU", shape: "CHS",
     build: () => CHS.map(([d, t]) => chsSection(`Ø${d}×${t}`, d, t, { family: "CHS_COLD", fabrication: "cold" })),
   },
+  ...([["I_G26020_B", G26020_B], ["I_G26020_SH", G26020_SH], ["I_G26020_K", G26020_K]] as const).map(([id, rows]) => ({
+    id, standard: "ГОСТ 26020-83", origin: "UA" as const, shape: "I" as const, verify: true,
+    build: () => rows.map(([n, h, b, tw, tf, r]) => iSection(n, h, b, tw, tf, r, { family: id })),
+  })),
+  { id: "C_GOST8240_U", standard: "ГОСТ 8240-97 (У)", origin: "UA", shape: "C",
+    build: () => G8240.map(([n, h, b, s, t, R]) => withApprox(channelSection(`${n}У`, h, b, s, t, R, { family: "C_GOST8240_U" }), "slope")) },
+  { id: "C_GOST8240_P", standard: "ГОСТ 8240-97 (П)", origin: "UA", shape: "C",
+    build: () => G8240.map(([n, h, b, s, t, R]) => channelSection(`${n}П`, h, b, s, t, R, { family: "C_GOST8240_P" })) },
+  { id: "UPN", standard: "EN 10365", origin: "EU", shape: "C",
+    build: () => UPN.map(([h, b, tw, tf, r]) => withApprox(channelSection(`UPN ${h}`, h, b, tw, tf, r, { family: "UPN" }), "slope")) },
+  { id: "L_GOST8509", standard: "ГОСТ 8509-93", origin: "UA", shape: "L",
+    build: () => G8509.map(([b, t, R]) => angleSection(`L${b}×${t}`, b, b, t, R, { family: "L_GOST8509" })) },
+  { id: "L_GOST8510", standard: "ГОСТ 8510-86", origin: "UA", shape: "L",
+    build: () => G8510.map(([B, b, t, R]) => angleSection(`L${B}×${b}×${t}`, B, b, t, R, { family: "L_GOST8510" })) },
+  { id: "L_EN", standard: "EN 10056-1", origin: "EU", shape: "L",
+    build: () => L_EN.map(([b, t, r]) => angleSection(`L${b}×${t}`, b, b, t, r, { family: "L_EN" })) },
 ];
+
+/** Сімейства, які підходять для елемента: балка і вузол — двотаври і труби (ПФУ для швелерів/кутиків не реалізована) */
+export function familiesFor(use: "beam" | "column" | "node"): Family[] {
+  const ok = use === "column" ? ["I", "RHS", "CHS", "C", "L"] : ["I", "RHS", "CHS"];
+  return FAMILIES.filter((f) => !f.shape || ok.includes(f.shape));
+}
 
 const cache = new Map<string, Section[]>();
 export function familySections(id: string): Section[] {

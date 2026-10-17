@@ -2,15 +2,17 @@
 // Деталі вибираються кліком на схемі або у списку; відкрита лише одна картка, щоб не плутатися у вводі.
 import { useMemo, useState } from "react";
 import {
-  ANCHOR_STEELS, AnchorType, BOLT_DIAMETERS, checkBasePlate, CodeId, CONCRETE_CLASSES, FAMILIES, familySections, findSection,
+  ANCHOR_STEELS, AnchorType, BOLT_DIAMETERS, checkBasePlate, CodeId, CONCRETE_CLASSES, familiesFor, familySections, findSection,
   chsSection, iSection, NodeCombo, NodeProfile, NodeResult, rhsSection, Section, STEELS, WELD_PROCESSES, WeldProcess,
+  buildCombinations, Exposure, LAYER_MATERIALS, layerMat, LoadCategory, Metal, StackLayer,
 } from "@structcalc/core";
 import { CheckList, pct, T, utilState } from "./Results";
+import { FamilyOptions } from "./SectionModule";
 
 export type NodeTmpl = "baseHinged" | "baseRigid" | "bracket";
 const READY: NodeTmpl[] = ["baseHinged", "baseRigid", "bracket"];
 const SOON = ["beamSeat", "finPlate", "endPlate", "flangeSplice", "coverSplice", "gusset", "cantilever"];
-type PartId = "profile" | "plate" | "ribs" | "anchors" | "concrete";
+type PartId = "profile" | "plate" | "ribs" | "stack" | "anchors" | "concrete";
 type JointId = "wProfile" | "wRib" | "anchorJ";
 
 export interface NodeState {
@@ -27,7 +29,19 @@ export interface NodeState {
   aFree: boolean; aPts: { x: number; y: number }[];
   conc: string; cracked: boolean; reinf: boolean; Lc: string; Bc: string; hc: number; grout: number; friction: boolean;
   combos: NodeCombo[]; gammaC: number; gammaN: number; obj: string; elem: string;
+  /** взаємне розташування: зміщення профілю на плиті; кронштейн — точка прикладання сил від осі профілю, мм */
+  ex: number; ey: number; lpx: number; lpy: number;
+  /** форма: зрізані кути плити, висота ребра біля краю плити */
+  chamfer: number; hr2: number;
+  /** пакет між плитою й основою зверху вниз; undefined — стара підливка grout */
+  stack?: StackLayer[];
+  /** метали деталей, ізоляція анкерів, середовище */
+  mProfile: Metal; mPlate: Metal; mAnchor: Metal; aIso: boolean; env: Exposure;
+  /** сполучення: вручну або з навантажень за ДБН В.1.2-2 / EN 1990 */
+  cMode: "manual" | "cases"; cases: NodeCase[];
 }
+
+export interface NodeCase extends Omit<NodeCombo, "name"> { label: string; cat: LoadCategory; group?: string; gf?: number }
 
 export const initialNode: NodeState = {
   tmpl: null, sel: "profile", family: "HEB", size: "HEB 300", pSteel: "C245", lever: 0,
@@ -36,7 +50,16 @@ export const initialNode: NodeState = {
   aType: "headed", ad: 30, aSteel: "09Г2С", ahef: 700, anx: 2, any: 2, asx: 560, asy: 340, aTau: 7, aNRkp: "", aFree: false, aPts: [],
   conc: "C20/25", cracked: true, reinf: true, Lc: "1400", Bc: "1100", hc: 1200, grout: 40, friction: true,
   combos: [{ name: "1", N: 500, My: 80, Vz: 30 }, { name: "2", N: 150, My: 90, Vz: 35 }], gammaC: 1, gammaN: 1, obj: "", elem: "",
+  ex: 0, ey: 0, lpx: 0, lpy: 0, chamfer: 0, hr2: 90, stack: [{ mat: "grout", t: 40 }],
+  mProfile: "carbon", mPlate: "carbon", mAnchor: "carbon", aIso: false, env: "outdoor",
+  cMode: "manual", cases: [
+    { label: "G", cat: "G", gf: 1.1, N: 350, My: 20, Vz: 5 },
+    { label: "S", cat: "Q", gf: 1.14, N: 120, My: 15, Vz: 3 },
+    { label: "W", cat: "Q", gf: 1.4, N: -30, My: 45, Vz: 22 },
+  ],
 };
+
+const GF: Record<CodeId, Record<LoadCategory, number>> = { DBN: { G: 1.1, L: 1.2, Q: 1.4, A: 1 }, EN: { G: 1.35, L: 1.5, Q: 1.5, A: 1 } };
 
 /** Типові параметри шаблону */
 export function pickTmpl(s: NodeState, k: NodeTmpl, code: CodeId): Partial<NodeState> {
@@ -44,12 +67,15 @@ export function pickTmpl(s: NodeState, k: NodeTmpl, code: CodeId): Partial<NodeS
   const base = { tmpl: k, sel: "profile" as const, pSteel: st, plSteel: st };
   if (k === "baseHinged") return { ...base, family: "HEB", size: "HEB 200", lever: 0, L: 360, B: 380, t: 25, ribs: false, ribTips: false, aFree: false, kf: 6, milled: false, reinf: true,
     aType: "headed", ad: 20, aSteel: code === "DBN" ? "09Г2С" : "5.6", ahef: 500, anx: 1, any: 2, asx: 0, asy: 290,
-    conc: "C20/25", cracked: true, Lc: "800", Bc: "800", hc: 800, grout: 30, friction: true, combos: [{ name: "1", N: 600, Vz: 20 }, { name: "2", N: -40, Vz: 8 }] };
+    conc: "C20/25", cracked: true, Lc: "800", Bc: "800", hc: 800, grout: 30, friction: true, combos: [{ name: "1", N: 600, Vz: 20 }, { name: "2", N: -40, Vz: 8 }],
+    ex: 0, ey: 0, chamfer: 0, stack: [{ mat: "grout", t: 30 }], mProfile: "carbon", mPlate: "carbon", mAnchor: "carbon", aIso: false, cMode: "manual" as const };
   if (k === "baseRigid") return { ...base, ...pickRest(initialNode), plSteel: code === "DBN" ? "C255" : "S235", aSteel: code === "DBN" ? "09Г2С" : "5.6" };
   return { ...base, family: "RHS_COLD", size: "180×100×6", lever: 1200, L: 340, B: 200, t: 22, ribs: false, ribTips: false, aFree: false, kf: 5, milled: false,
     aType: "bonded", ad: 16, aSteel: "5.8", ahef: 160, anx: 2, any: 2, asx: 260, asy: 120, aTau: 7,
     conc: "C20/25", cracked: true, reinf: false, Lc: "", Bc: "", hc: 250, grout: 0, friction: false,
-    combos: [{ name: "1", P: 8 }, { name: "2", P: 3, H: 2, Q: 1 }] };
+    combos: [{ name: "1", P: 8 }, { name: "2", P: 3, H: 2, Q: 1 }],
+    ex: 0, ey: 0, lpx: 0, lpy: 0, chamfer: 0, stack: [], mProfile: "galv", mPlate: "galv", mAnchor: code === "DBN" ? "galv" : "stainless", aIso: false, cMode: "manual" as const,
+    cases: [{ label: "G", cat: "G" as const, gf: GF[code].G, P: 4 }, { label: "Q", cat: "Q" as const, gf: GF[code].Q, P: 2.5, Q: 0.6 }] };
   function pickRest(o: NodeState): Partial<NodeState> {
     const { tmpl: _a, sel: _b, obj: _c, elem: _d, gammaC: _e, gammaN: _f, ...rest } = o;
     return rest;
@@ -76,7 +102,10 @@ function Num({ id, label, v, on, step, ph }: { id: string; label: string; v: num
   return <label><span className="lbl">{label}</span><input id={id} type="number" step={step ?? 1} placeholder={ph} value={v} onChange={(e) => on(e.target.value)} /></label>;
 }
 
-const NODE_FAMILIES = ["HEB", "HEA", "IPE", "I_GOST8239", "RHS_COLD", "CHS_COLD", "CUSTOM", "MANUAL"];
+/** пакет під плитою; старі збереження — лише підливка */
+export const stackOf = (s: NodeState): StackLayer[] => s.stack ?? (s.grout > 0 ? [{ mat: "grout", t: s.grout }] : []);
+const layerCls = (mat: string) => `cs-layer g-${layerMat(mat).group}`;
+
 const nodeKind = (x: Section) => x.kind === "I" || x.kind === "RHS" || x.kind === "CHS";
 
 function toProfile(sec: Section): NodeProfile {
@@ -86,7 +115,9 @@ function toProfile(sec: Section): NodeProfile {
 }
 
 type Pt2 = { x: number; y: number };
-type DimKey = "L" | "B" | "t" | "hr" | "lever" | "asx" | "asy" | "ahef";
+type DimKey = "L" | "B" | "t" | "hr" | "lever" | "asx" | "asy" | "ahef" | "ex" | "ey" | "chamfer" | "lpx" | "lpy";
+/** розміри, що можуть бути нульовими або від'ємними (зміщення) */
+const SIGNED: DimKey[] = ["ex", "ey", "lpx", "lpy", "chamfer"];
 type Edit = { key: DimKey; view: 0 | 1; x: number; y: number; v: number } | null;
 
 /** Схема вузла: вигляд збоку і план (для кронштейна — фасад плити на стіні).
@@ -97,9 +128,10 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
 }) {
   const [edit, setEdit] = useState<Edit>(null);
   // під час перетягування масштаб плану зафіксовано (m), інакше зміна L/B «тікає» від курсора
-  const [drag, setDrag] = useState<{ kind: "anchor"; k: number; m: number } | { kind: "L" | "B"; m: number } | null>(null);
+  const [drag, setDrag] = useState<{ kind: "anchor"; k: number; m: number } | { kind: "L" | "B" | "prof" | "lp"; m: number } | null>(null);
   const [hot, setHot] = useState<number | null>(null);
   const br = s.tmpl === "bracket";
+  const stk = stackOf(s), tAll = stk.reduce((a, l) => a + l.t, 0);
   const forces = r?.combos[combo]?.forces ?? [];
   const fmax = Math.max(1e-9, ...forces.map((q) => q.N));
   const cls = (id: string, base: string) => `${base} pick ${sel === id ? "on" : ""}`;
@@ -126,17 +158,26 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
     const LcR = inf(s.Lc);
     const Lc = Math.min(Number.isFinite(LcR) ? LcR : s.L * 1.6, s.L * 1.6);
     const colH = Math.max(1.6 * p.h, anyRib ? 1.4 * s.hr : 0, 300);
-    const below = s.grout + Math.min(s.hc, s.ahef + 150);
+    const below = tAll + Math.min(s.hc, s.ahef + 150);
     const sc = Math.min((W - 20) / Math.max(Lc, s.L), (H - 30) / (colH + s.t + below));
-    const cx = W / 2, y0 = 15 + colH * sc;
-    const yc = y0 + (s.t + s.grout) * sc;
-    const ha = p.kind === "CHS" ? p.h / 2 : p.h / 2;
+    const cx0 = W / 2, y0 = 15 + colH * sc;
+    const yc = y0 + (s.t + tAll) * sc;
+    const ha = p.h / 2;
+    // вісь профілю зміщена на ex
+    const cx = cx0 + s.ex * sc;
+    let yl = y0 + s.t * sc;
+    const layers = stk.map((l, k) => {
+      const w = Math.min(l.L ?? s.L, s.L), yy = yl;
+      yl += l.t * sc;
+      return <rect key={k} x={cx0 - (w / 2) * sc} y={yy} width={w * sc} height={Math.max(1.5, l.t * sc)} className={cls("stack", layerCls(l.mat))} onClick={() => onPick("stack")} />;
+    });
     side = (
       <svg viewBox={`0 0 ${W} ${H}`} className="conn-scheme node-scheme" role="img" aria-label="elevation">
         {arrow}
         <rect x={cx - (Lc / 2) * sc} y={yc} width={Lc * sc} height={(H - 5 - yc)} className={cls("concrete", "cs-concrete")} onClick={() => onPick("concrete")} />
-        <rect x={cx - (s.L / 2) * sc} y={y0} width={s.L * sc} height={Math.max(2, s.t * sc)} className={cls("plate", "cs-plate")} onClick={() => onPick("plate")} />
-        {xsGrid.map((x, k) => <line key={k} x1={cx + x * sc} x2={cx + x * sc} y1={y0 - 8} y2={Math.min(H - 8, yc + s.ahef * sc)} className={cls("anchorJ", "cs-anchorline")} onClick={() => onPick("anchors")} />)}
+        <rect x={cx0 - (s.L / 2) * sc} y={y0} width={s.L * sc} height={Math.max(2, s.t * sc)} className={cls("plate", "cs-plate")} onClick={() => onPick("plate")} />
+        {layers}
+        {xsGrid.map((x, k) => <line key={k} x1={cx0 + x * sc} x2={cx0 + x * sc} y1={y0 - 8} y2={Math.min(H - 8, yc + s.ahef * sc)} className={cls("anchorJ", "cs-anchorline")} onClick={() => onPick("anchors")} />)}
         <g className={cls("profile", "")} onClick={() => onPick("profile")}>
           <rect x={cx - ha * sc} y={y0 - colH * sc} width={p.h * sc} height={colH * sc} className="cs-member" />
           {p.kind !== "CHS" && <>
@@ -144,29 +185,41 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
             <line x1={cx + (p.h / 2 - p.tf) * sc} x2={cx + (p.h / 2 - p.tf) * sc} y1={y0 - colH * sc} y2={y0} className="cs-flange" />
           </>}
         </g>
-        {anyRib && [-1, 1].map((sg) => (
-          <path key={sg} d={`M${cx + sg * ha * sc} ${y0 - s.hr * sc} L${cx + sg * (s.L / 2 - 15) * sc} ${y0 - 0.3 * s.hr * sc} V${y0} H${cx + sg * ha * sc}z`} className={cls("ribs", "cs-rib")} onClick={() => onPick("ribs")} />
-        ))}
+        {anyRib && [-1, 1].map((sg) => {
+          // ребро-трапеція: h_r біля профілю, h_r2 біля краю плити
+          const xe = cx0 + sg * (s.L / 2) * sc, xf = cx + sg * ha * sc;
+          return <path key={sg} d={`M${xf} ${y0 - s.hr * sc} L${xe} ${y0 - Math.min(s.hr2, s.hr) * sc} V${y0} H${xf}z`} className={cls("ribs", "cs-rib")} onClick={() => onPick("ribs")} />;
+        })}
         <line x1={cx - ha * sc - 3} x2={cx + ha * sc + 3} y1={y0 - 2} y2={y0 - 2} className={cls("wProfile", "cs-weld")} strokeWidth={4} onClick={() => onPick("wProfile")} />
         <line x1={cx} x2={cx} y1={2} y2={14} className="cs-load" markerEnd="url(#narr)" />
         <text x={cx + 6} y={12} className="s-text small">N, M, V</text>
-        {chip("t", 0, cx - (s.L / 2) * sc - 26, y0 + 3, `t ${s.t}`, s.t)}
-        {anyRib && chip("hr", 0, cx + (s.L / 2) * sc + 2 > W - 40 ? W - 34 : cx + (s.L / 2) * sc + 22, y0 - s.hr * sc * 0.6, `hr ${s.hr}`, s.hr)}
-        {chip("ahef", 0, cx + (xsGrid[xsGrid.length - 1] ?? 0) * sc + 30, Math.min(H - 16, yc + s.ahef * sc * 0.6), `hef ${s.ahef}`, s.ahef)}
+        {chip("t", 0, cx0 - (s.L / 2) * sc - 26, y0 + 3, `t ${s.t}`, s.t)}
+        {anyRib && chip("hr", 0, Math.min(W - 34, cx0 + (s.L / 2) * sc + 22), y0 - s.hr * sc * 0.6, `hr ${s.hr}`, s.hr)}
+        {s.ex !== 0 && chip("ex", 0, cx, y0 - colH * sc + 12, `ex ${s.ex}`, s.ex)}
+        {chip("ahef", 0, cx0 + (xsGrid[xsGrid.length - 1] ?? 0) * sc + 30, Math.min(H - 16, yc + s.ahef * sc * 0.6), `hef ${s.ahef}`, s.ahef)}
       </svg>
     );
   } else {
     // кронштейн: стіна праворуч, плита на грані стіни, консоль ліворуч з силою P на кінці
     const wallT = Math.min(s.hc, s.ahef + 120);
-    const sc = Math.min((W - 30) / (s.lever + s.t + wallT), (H - 40) / Math.max(s.L * 1.3, p.h * 1.5));
-    const xw = W - 10 - wallT * sc, yc = H / 2;
-    const xp = xw - s.t * sc, xt = xp - s.lever * sc;
+    const sc = Math.min((W - 30) / (s.lever + s.t + tAll + wallT), (H - 40) / Math.max(s.L * 1.3, p.h * 1.5));
+    const xw = W - 10 - wallT * sc, yp0 = H / 2;
+    const xp = xw - (s.t + tAll) * sc, xt = xp - s.lever * sc;
+    // вісь профілю зміщена по висоті плити на ex (x плити — вгору)
+    const yc = yp0 - s.ex * sc;
+    let xl = xp + s.t * sc;
+    const layers = stk.map((l, k) => {
+      const hgt = Math.min(l.L ?? s.L, s.L), xx = xl;
+      xl += l.t * sc;
+      return <rect key={k} x={xx} y={yp0 - (hgt / 2) * sc} width={Math.max(1.5, l.t * sc)} height={hgt * sc} className={cls("stack", layerCls(l.mat))} onClick={() => onPick("stack")} />;
+    });
     side = (
       <svg viewBox={`0 0 ${W} ${H}`} className="conn-scheme node-scheme" role="img" aria-label="elevation">
         {arrow}
         <rect x={xw} y={8} width={wallT * sc} height={H - 16} className={cls("concrete", "cs-concrete")} onClick={() => onPick("concrete")} />
-        <rect x={xp} y={yc - (s.L / 2) * sc} width={Math.max(2, s.t * sc)} height={s.L * sc} className={cls("plate", "cs-plate")} onClick={() => onPick("plate")} />
-        {xsGrid.map((x, k) => <line key={k} x1={xp - 6} x2={xw + s.ahef * sc} y1={yc - x * sc} y2={yc - x * sc} className={cls("anchorJ", "cs-anchorline")} onClick={() => onPick("anchors")} />)}
+        <rect x={xp} y={yp0 - (s.L / 2) * sc} width={Math.max(2, s.t * sc)} height={s.L * sc} className={cls("plate", "cs-plate")} onClick={() => onPick("plate")} />
+        {layers}
+        {xsGrid.map((x, k) => <line key={k} x1={xp - 6} x2={xw + s.ahef * sc} y1={yp0 - x * sc} y2={yp0 - x * sc} className={cls("anchorJ", "cs-anchorline")} onClick={() => onPick("anchors")} />)}
         <g className={cls("profile", "")} onClick={() => onPick("profile")}>
           <rect x={xt} y={yc - (p.h / 2) * sc} width={s.lever * sc} height={p.h * sc} className="cs-member" />
           {p.kind !== "CHS" && <>
@@ -175,8 +228,10 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
           </>}
         </g>
         <line x1={xp - 2} x2={xp - 2} y1={yc - (p.h / 2) * sc - 3} y2={yc + (p.h / 2) * sc + 3} className={cls("wProfile", "cs-weld")} strokeWidth={4} onClick={() => onPick("wProfile")} />
-        <line x1={xt + 2} x2={xt + 2} y1={yc - (p.h / 2) * sc - 34} y2={yc - (p.h / 2) * sc - 2} className="cs-load" markerEnd="url(#narr)" />
-        <text x={xt + 8} y={yc - (p.h / 2) * sc - 24} className="s-text small">P</text>
+        {/* точка прикладання: виліт e, по висоті — lpx від осі профілю */}
+        <line x1={xt + 2} x2={xt + 2} y1={yc - s.lpx * sc - 34} y2={yc - s.lpx * sc - 2} className="cs-load" markerEnd="url(#narr)" />
+        <circle cx={xt + 2} cy={yc - s.lpx * sc} r={3} className="cs-loadpt" />
+        <text x={xt + 8} y={yc - s.lpx * sc - 24} className="s-text small">P{s.lpy ? `, y ${s.lpy}` : ""}</text>
         <line x1={xt} x2={xp} y1={yc + (p.h / 2) * sc + 14} y2={yc + (p.h / 2) * sc + 14} className="cs-dim" />
         {chip("lever", 0, (xt + xp) / 2, yc + (p.h / 2) * sc + 28, `e ${s.lever}`, s.lever)}
         {chip("t", 0, xp - 22, yc + (s.L / 2) * sc + 12, `t ${s.t}`, s.t)}
@@ -210,6 +265,11 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
     if (drag.kind === "anchor") {
       const np = pts.map((a, k) => (k === drag.k ? { x: clamp(snap(q.x, 5), s.L / 2), y: clamp(snap(q.y, 5), s.B / 2) } : a));
       set({ aFree: true, aPts: np });
+    } else if (drag.kind === "prof") {
+      // профіль не виходить за плиту
+      set({ ex: clamp(snap(q.x, 5), Math.max(0, (s.L - p.h) / 2)), ey: clamp(snap(q.y, 5), Math.max(0, (s.B - p.b) / 2)) });
+    } else if (drag.kind === "lp") {
+      set({ lpx: snap(q.x - s.ex, 5), lpy: snap(q.y - s.ey, 5) });
     } else if (drag.kind === "L") set({ L: Math.min(Math.max(snap(2 * Math.abs(q.x), 10), Math.ceil(p.h / 10) * 10 + 20), drag.m * 1.5) });
     else set({ B: Math.min(Math.max(snap(2 * Math.abs(q.y), 10), Math.ceil(p.b / 10) * 10 + 20), drag.m * 1.5) });
   };
@@ -223,7 +283,18 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
   const plan = (
     <svg viewBox={`0 0 ${PW} ${PH}`} className={`conn-scheme node-scheme ${drag ? "dragging" : ""}`} role="img" aria-label="plan"
       onPointerMove={interactive ? onMove : undefined} onPointerUp={() => setDrag(null)} onPointerLeave={() => setDrag(null)}>
-      {rect(-s.L / 2, -s.B / 2, s.L / 2, s.B / 2, cls("plate", "cs-plate"), () => onPick("plate"))}
+      {(() => {
+        // плита зі зрізаними кутами
+        const c = Math.max(0, Math.min(s.chamfer, s.L / 2, s.B / 2)), a = s.L / 2, b = s.B / 2;
+        const poly: [number, number][] = c > 0
+          ? [[-a + c, -b], [a - c, -b], [a, -b + c], [a, b - c], [a - c, b], [-a + c, b], [-a, b - c], [-a, -b + c]]
+          : [[-a, -b], [a, -b], [a, b], [-a, b]];
+        return <polygon points={poly.map(([x, y]) => `${PX(x, y)},${PY(x, y)}`).join(" ")} className={cls("plate", "cs-plate")} onClick={() => onPick("plate")} />;
+      })()}
+      {stk.filter((l) => (l.L && l.L < s.L) || (l.B && l.B < s.B)).map((l, k) => <g key={k} className="pick" onClick={() => onPick("stack")}>{rect(-Math.min(l.L ?? s.L, s.L) / 2, -Math.min(l.B ?? s.B, s.B) / 2, Math.min(l.L ?? s.L, s.L) / 2, Math.min(l.B ?? s.B, s.B) / 2, "cs-pad")}</g>)}
+      <g transform={`translate(${PX(s.ex, s.ey) - PX(0, 0)} ${PY(s.ex, s.ey) - PY(0, 0)})`} className={interactive ? "movable" : ""}
+        onPointerDown={interactive ? (e) => { if ((e.target as Element).closest(".prof-g")) { e.preventDefault(); setDrag({ kind: "prof", m }); } } : undefined}>
+      <g className="prof-g">
       {p.kind === "I" ? <g className={cls("profile", "")} onClick={() => onPick("profile")}>
         {rect(-p.h / 2, -p.b / 2, -p.h / 2 + p.tf, p.b / 2, "cs-member")}
         {rect(p.h / 2 - p.tf, -p.b / 2, p.h / 2, p.b / 2, "cs-member")}
@@ -235,16 +306,18 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
         <circle cx={PX(0, 0)} cy={PY(0, 0)} r={(p.h / 2) * ps} className="cs-member" />
         <circle cx={PX(0, 0)} cy={PY(0, 0)} r={Math.max(1, (p.h / 2 - p.tw) * ps)} className="cs-hollow" />
       </g>}
+      </g>
+      </g>
       {ribWeb && <g onClick={() => onPick("ribs")}>
-        {rect(p.h / 2, -s.tr / 2, s.L / 2, s.tr / 2, cls("ribs", "cs-rib"))}
-        {rect(-s.L / 2, -s.tr / 2, -p.h / 2, s.tr / 2, cls("ribs", "cs-rib"))}
+        {rect(s.ex + p.h / 2, s.ey - s.tr / 2, s.L / 2, s.ey + s.tr / 2, cls("ribs", "cs-rib"))}
+        {rect(-s.L / 2, s.ey - s.tr / 2, s.ex - p.h / 2, s.ey + s.tr / 2, cls("ribs", "cs-rib"))}
       </g>}
       {ribTips && <g onClick={() => onPick("ribs")}>
         {p.kind === "CHS" ? <>
-          {rect(-s.tr / 2, p.b / 2, s.tr / 2, s.B / 2, cls("ribs", "cs-rib"))}
-          {rect(-s.tr / 2, -s.B / 2, s.tr / 2, -p.b / 2, cls("ribs", "cs-rib"))}
+          {rect(s.ex - s.tr / 2, s.ey + p.b / 2, s.ex + s.tr / 2, s.B / 2, cls("ribs", "cs-rib"))}
+          {rect(s.ex - s.tr / 2, -s.B / 2, s.ex + s.tr / 2, s.ey - p.b / 2, cls("ribs", "cs-rib"))}
         </> : [-1, 1].flatMap((sy) => [-1, 1].map((sx) => (
-          <g key={`${sx}${sy}`}>{rect(sx * p.h / 2, sy * (p.b / 2 - s.tr / 2) - s.tr / 2, sx * s.L / 2, sy * (p.b / 2 - s.tr / 2) + s.tr / 2, cls("ribs", "cs-rib"))}</g>
+          <g key={`${sx}${sy}`}>{rect(s.ex + sx * p.h / 2, s.ey + sy * (p.b / 2 - s.tr / 2) - s.tr / 2, sx * s.L / 2, s.ey + sy * (p.b / 2 - s.tr / 2) + s.tr / 2, cls("ribs", "cs-rib"))}</g>
         )))}
       </g>}
       {pts.map((q, k) => {
@@ -262,6 +335,14 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
       {/* кроки анкерів (сітка) */}
       {grid && ax.length > 1 && chip("asx", 1, br ? left - 32 : (PX(ax[0], 0) + PX(ax[1], 0)) / 2, br ? (PY(ax[0], 0) + PY(ax[1], 0)) / 2 : top - 22, `sx ${s.asx}`, s.asx)}
       {grid && ay.length > 1 && chip("asy", 1, br ? (PX(0, ay[0]) + PX(0, ay[1])) / 2 : left - 32, br ? top - 22 : (PY(0, ay[0]) + PY(0, ay[1])) / 2, `sy ${s.asy}`, s.asy)}
+      {br && <g className={interactive ? "pick movable" : ""} onPointerDown={interactive ? (e) => { e.preventDefault(); setDrag({ kind: "lp", m }); onPick("profile"); } : undefined}>
+        {/* точка прикладання сили на фасаді */}
+        <circle cx={PX(s.ex + s.lpx, s.ey + s.lpy)} cy={PY(s.ex + s.lpx, s.ey + s.lpy)} r={7} className="cs-loadpt-ring" />
+        <path d={`M${PX(s.ex + s.lpx, s.ey + s.lpy) - 5} ${PY(s.ex + s.lpx, s.ey + s.lpy)}h10M${PX(s.ex + s.lpx, s.ey + s.lpy)} ${PY(s.ex + s.lpx, s.ey + s.lpy) - 5}v10`} className="cs-loadpt-x" />
+      </g>}
+      {s.ex !== 0 && chip("ex", 1, PX(s.ex, s.ey) + (br ? 34 : 0), PY(s.ex, s.ey) + (br ? 0 : -(p.b / 2) * ps - 12), `ex ${s.ex}`, s.ex)}
+      {s.ey !== 0 && chip("ey", 1, PX(s.ex, s.ey) + (br ? 0 : 34), PY(s.ex, s.ey) + (br ? (p.h / 2) * ps + 14 : 0), `ey ${s.ey}`, s.ey)}
+      {s.chamfer > 0 && chip("chamfer", 1, PX(s.L / 2 - s.chamfer / 2, s.B / 2 - s.chamfer / 2) + 4, PY(s.L / 2 - s.chamfer / 2, s.B / 2 - s.chamfer / 2) - 10, `c ${s.chamfer}`, s.chamfer)}
       {interactive && <>
         <rect x={hL.x - 5} y={hL.y - 5} width={10} height={10} className="handle" onPointerDown={(e) => { e.preventDefault(); setDrag({ kind: "L", m }); }} />
         <rect x={hB.x - 5} y={hB.y - 5} width={10} height={10} className="handle" onPointerDown={(e) => { e.preventDefault(); setDrag({ kind: "B", m }); }} />
@@ -272,7 +353,7 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
   const commit = (v: string) => {
     if (!edit) return;
     const n = num(v);
-    if (Number.isFinite(n) && n > 0) set({ [edit.key]: n } as Partial<NodeState>);
+    if (Number.isFinite(n) && (n > 0 || SIGNED.includes(edit.key))) set({ [edit.key]: n } as Partial<NodeState>);
     setEdit(null);
   };
   const overlay = (view: 0 | 1, vw: number, vh: number) => edit && edit.view === view && (
@@ -291,11 +372,33 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
 
 const clamp = (v: number, lim: number) => Math.max(-lim, Math.min(lim, v));
 
+type ForceKey = Exclude<keyof NodeCombo, "name">;
+const FORCE_KEYS: ForceKey[] = ["N", "My", "Mz", "Vz", "Vy", "T", "P", "H", "Q"];
+/** Сполучення з навантажень: ULS і аварійні за ДБН В.1.2-2 (4.18) / EN 1990 (6.10), у кН і кН·м */
+export function casesToCombos(cases: NodeCase[], code: CodeId): { combo: NodeCombo; text: string }[] {
+  if (!cases.length) return [];
+  const loads = cases.map((c) => ({ cat: c.cat, label: c.label || c.cat, group: c.group, gf: c.gf ?? GF[code][c.cat] }));
+  const influence = cases.map((c) => FORCE_KEYS.reduce((a, k) => a + Math.abs((c[k] as number | undefined) ?? 0), 0));
+  const all = buildCombinations(loads, { code, gammaG: GF[code].G, gammaQ: GF[code].Q, influence }).filter((c) => c.kind !== "SLS");
+  return all.map((c, k) => {
+    const combo: NodeCombo = { name: `${c.kind === "ACC" ? "A" : ""}${k + 1}` };
+    for (const key of FORCE_KEYS) {
+      const v = cases.reduce((a, cs, i) => a + c.factors[i] * ((cs[key] as number | undefined) ?? 0), 0);
+      if (v !== 0) (combo as unknown as Record<string, number>)[key] = Math.round(v * 1000) / 1000;
+    }
+    return { combo, text: c.text };
+  });
+}
+
+const METALS: Metal[] = ["carbon", "galv", "stainless", "aluminium"];
+const EXPOSURES: Exposure[] = ["dry", "outdoor", "aggressive"];
+const LAYER_GROUPS = ["grout", "plastic", "elastomer", "metal", "timber", "insulation"] as const;
+
 export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; set: (p: Partial<NodeState>) => void; t: T }) {
   const [tab, setTab] = useState<"results" | "report">("results");
   const [combo, selCombo] = useState(0);
   const steels = STEELS.filter((x) => x.code === code);
-  const fams = NODE_FAMILIES.filter((f) => f === "MANUAL" || FAMILIES.some((x) => x.id === f));
+  const fams = [...familiesFor("node").map((f) => f.id), "MANUAL"];
   const family = fams.includes(s.family) ? s.family : "HEB";
   const manual = family === "MANUAL";
   const sizes = manual ? [] : familySections(family).filter(nodeKind);
@@ -321,12 +424,15 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
     if (!s.tmpl) return {};
     try {
       const fck = CONCRETE_CLASSES.find((c) => c.id === s.conc)?.fck ?? 20;
-      const combos = s.combos.map((c) => br
+      const src = s.cMode === "cases" ? casesToCombos(s.cases, code).map((x) => x.combo) : s.combos;
+      const combos = src.map((c) => br
         ? { name: c.name, P: (c.P ?? 0) * kN, H: (c.H ?? 0) * kN, Q: (c.Q ?? 0) * kN }
-        : { name: c.name, N: (c.N ?? 0) * kN, My: (c.My ?? 0) * kNm, Mz: (c.Mz ?? 0) * kNm, Vz: (c.Vz ?? 0) * kN, Vy: (c.Vy ?? 0) * kN });
+        : { name: c.name, N: (c.N ?? 0) * kN, My: (c.My ?? 0) * kNm, Mz: (c.Mz ?? 0) * kNm, Vz: (c.Vz ?? 0) * kN, Vy: (c.Vy ?? 0) * kN, T: (c.T ?? 0) * kNm });
       return { r: checkBasePlate({
         code, kind: br ? "bracket" : "base", profile: prof, profileSteel: s.pSteel, lever: s.lever,
-        plate: { L: s.L, B: s.B, t: s.t, steel: s.plSteel }, ribs: { web: s.ribs, tips: s.ribTips, hr: s.hr, tr: s.tr },
+        plate: { L: s.L, B: s.B, t: s.t, steel: s.plSteel, chamfer: s.chamfer }, ribs: { web: s.ribs, tips: s.ribTips, hr: s.hr, tr: s.tr, hr2: s.hr2 },
+        offset: { x: s.ex, y: s.ey }, loadPoint: br ? { x: s.lpx, y: s.lpy } : undefined, stack: stackOf(s),
+        compat: { env: s.env, profile: s.mProfile, plate: s.mPlate, anchors: s.mAnchor, anchorsIsolated: s.aIso },
         weld: { kf: s.kf, process: s.proc, milled: s.milled },
         anchors: { type: s.aType, d: s.ad, steel: s.aSteel, hef: s.ahef, nx: s.anx, ny: s.any, sx: s.asx, sy: s.asy, points: pts,
           tauRk: s.aTau, NRkp: s.aNRkp.trim() ? num(s.aNRkp) * kN : undefined },
@@ -364,12 +470,57 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
     <label><span className="lbl">{t("material")}</span><select id={id} value={steels.some((x) => x.id === v) ? v : steels[0].id} onChange={(e) => on(e.target.value)}>{steels.map((x) => <option key={x.id}>{x.id}</option>)}</select></label>
   );
   const types: AnchorType[] = ["headed", "mechanical", "bonded"];
+  const metalSel = (id: string, v: Metal, on: (m: Metal) => void, list = METALS) => (
+    <label><span className="lbl">{t("np_metal")}</span><select id={id} value={v} onChange={(e) => on(e.target.value as Metal)}>{list.map((m) => <option key={m} value={m}>{t(`metal_${m}`)}</option>)}</select></label>
+  );
+  const stk = stackOf(s);
+  const setStack = (st: StackLayer[]) => set({ stack: st });
+  const tStack = stk.reduce((a, l) => a + l.t, 0);
+  const stackBody = (
+    <div className="stack-ed">
+      <div className="stack-top"><span className="part-dot part" />{t("np_plate")} · {s.t} mm · {t(`metal_${s.mPlate}`)}</div>
+      {stk.map((l, k) => {
+        const lm = layerMat(l.mat);
+        const upd = (q: Partial<StackLayer>) => setStack(stk.map((x, j) => (j === k ? { ...x, ...q } : x)));
+        return (
+          <div key={k} className={`stack-row g-${lm.group}`}>
+            <span className="stack-sw" />
+            <select id={`stm${k}`} value={l.mat} onChange={(e) => upd({ mat: e.target.value, fd: undefined })}>
+              {LAYER_GROUPS.map((g) => <optgroup key={g} label={t(`lg_${g}`)}>{LAYER_MATERIALS.filter((m) => m.group === g).map((m) => <option key={m.id} value={m.id}>{t(`lay_${m.id}`)}</option>)}</optgroup>)}
+            </select>
+            <label className="mini"><span>t</span><input id={`stt${k}`} type="number" value={l.t} onChange={(e) => upd({ t: Math.max(0, num(e.target.value)) })} /></label>
+            <span className="row-tools">
+              <button className="icon" aria-label="up" disabled={k === 0} onClick={() => { const n = [...stk]; [n[k - 1], n[k]] = [n[k], n[k - 1]]; setStack(n); }}>↑</button>
+              <button className="icon" aria-label="down" disabled={k === stk.length - 1} onClick={() => { const n = [...stk]; [n[k + 1], n[k]] = [n[k], n[k + 1]]; setStack(n); }}>↓</button>
+              <button className="icon" aria-label="remove" onClick={() => setStack(stk.filter((_, j) => j !== k))}>×</button>
+            </span>
+            {lm.group !== "metal" && <details className="stack-more">
+              <summary>{l.L || l.B || l.fd ? `${l.L ?? s.L}×${l.B ?? s.B} · f_d ${l.fd ?? +lm.fd.toFixed(2)}` : t("nst_more")}</summary>
+              <div className="grid3">
+                <label className="mini"><span>L</span><input id={`stl${k}`} type="number" placeholder={String(s.L)} value={l.L ?? ""} onChange={(e) => upd({ L: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
+                <label className="mini"><span>B</span><input id={`stb${k}`} type="number" placeholder={String(s.B)} value={l.B ?? ""} onChange={(e) => upd({ B: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
+                <label className="mini"><span>f_d</span><input id={`stf${k}`} type="number" step={0.1} placeholder={lm.fd.toFixed(2)} value={l.fd ?? ""} onChange={(e) => upd({ fd: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
+              </div>
+              <p className="hint">{lm.ref}</p>
+            </details>}
+          </div>
+        );
+      })}
+      <div className="stack-top base"><span className="part-dot base" />{t(br ? "np_wall" : "np_found")} · {s.conc}</div>
+      <div className="stack-add">
+        {(["grout", "thermalPad", "epdm", "paronite", "steelShim", "timber"] as const).map((m) => (
+          <button key={m} id={`stadd-${m}`} className="ghost" onClick={() => setStack([...stk, { mat: m, t: m === "grout" ? 30 : m === "steelShim" ? 5 : m === "timber" ? 40 : m === "thermalPad" ? 10 : 5 }])}>+ {t(`lay_${m}`)}</button>
+        ))}
+      </div>
+      <p className="hint">{t("nst_hint")}</p>
+    </div>
+  );
 
   // ---- картки деталей і стиків
   const parts: { id: PartId | JointId; group: "part" | "joint"; title: string; sum: string; body: JSX.Element; remove?: () => void; show: boolean }[] = [
     { id: "profile", group: "part", title: t(br ? "np_bracket" : "np_column"), sum: `${sec.name} · ${s.pSteel}${br ? ` · e = ${s.lever}` : ""}`, show: true, body: <div className="grid2">
       <label><span className="lbl">{t("family")}</span><select id="nfam" value={family} onChange={(e) => { const f = e.target.value; if (f === "MANUAL") { set({ family: f, pShape: prof.kind, ph: prof.h, pb: prof.b, ptw: prof.tw, ptf: prof.tf }); return; } const l = familySections(f).filter(nodeKind); set({ family: f, size: l[Math.floor(l.length / 3)]?.name ?? "" }); }}>
-        {fams.map((f) => <option key={f} value={f}>{f === "CUSTOM" ? t("fam_CUSTOM") : f === "MANUAL" ? t("np_manual") : f.replace("_COLD", "").replace("I_GOST8239", "ГОСТ 8239")}</option>)}</select></label>
+        <FamilyOptions fams={familiesFor("node")} t={t} /><option value="MANUAL">{t("np_manual")}</option></select></label>
       {manual
         ? <label><span className="lbl">{t("np_shape")}</span><select id="npshape" value={s.pShape} onChange={(e) => set({ pShape: e.target.value as NodeState["pShape"] })}>{(["I", "RHS", "CHS"] as const).map((k) => <option key={k} value={k}>{t(`nps_${k}`)}</option>)}</select></label>
         : <label><span className="lbl">{t("size")}</span><select id="nsize" value={sec.name} onChange={(e) => set({ size: e.target.value })}>{sizes.map((x) => <option key={x.name}>{x.name}</option>)}</select></label>}
@@ -380,27 +531,38 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
         {s.pShape === "I" && <Num id="nptf" label="t_f, mm" v={s.ptf} on={(v) => set({ ptf: num(v) })} />}
       </>}
       {steelSel("npst", s.pSteel, (v) => set({ pSteel: v }))}
+      {metalSel("npmet", s.mProfile, (m) => set({ mProfile: m }))}
       {br && <Num id="nlever" label={t("np_lever")} v={s.lever} on={(v) => set({ lever: num(v) })} />}
+      <Num id="nex" label={t(br ? "np_exV" : "np_ex")} v={s.ex} step={5} on={(v) => set({ ex: num(v) })} />
+      <Num id="ney" label={t("np_ey")} v={s.ey} step={5} on={(v) => set({ ey: num(v) })} />
+      {br && <>
+        <Num id="nlpx" label={t("np_lpx")} v={s.lpx} step={5} on={(v) => set({ lpx: num(v) })} />
+        <Num id="nlpy" label={t("np_lpy")} v={s.lpy} step={5} on={(v) => set({ lpy: num(v) })} />
+      </>}
+      <p className="hint wide">{t(br ? "np_posHintV" : "np_posHint")}</p>
     </div> },
     { id: "plate", group: "part", title: t("np_plate"), sum: `${s.L}×${s.B}×${s.t} · ${s.plSteel}`, show: true, body: <div className="grid2">
       <Num id="npl" label={t(br ? "np_Lv" : "np_L")} v={s.L} on={(v) => set({ L: num(v) })} />
       <Num id="nplb" label={t("np_B")} v={s.B} on={(v) => set({ B: num(v) })} />
       <Num id="npt" label={t("np_t")} v={s.t} on={(v) => set({ t: num(v) })} />
       {steelSel("nplst", s.plSteel, (v) => set({ plSteel: v }))}
+      <Num id="nchf" label={t("np_chamfer")} v={s.chamfer} step={5} on={(v) => set({ chamfer: Math.max(0, num(v)) })} />
+      {metalSel("nplmet", s.mPlate, (m) => set({ mPlate: m }))}
     </div> },
     { id: "ribs", group: "part", title: t("np_ribs"), sum: `${(s.ribs ? 2 : 0) + (s.ribTips ? (prof.kind === "CHS" ? 2 : 4) : 0)} × ${s.hr}×${s.tr}`, show: s.ribs || s.ribTips, remove: () => set({ ribs: false, ribTips: false, sel: "plate" }), body: <div className="grid2">
       <label className="wide chk"><input id="nribw" type="checkbox" checked={s.ribs} onChange={(e) => set({ ribs: e.target.checked })} />{t(prof.kind === "CHS" ? "np_ribX" : "np_ribWeb")}</label>
       <label className="wide chk"><input id="nribt" type="checkbox" checked={s.ribTips} onChange={(e) => set({ ribTips: e.target.checked })} />{t(prof.kind === "CHS" ? "np_ribY" : "np_ribTips")}</label>
       <Num id="nhr" label={t("np_hr")} v={s.hr} on={(v) => set({ hr: num(v) })} />
       <Num id="ntr" label={t("np_tr")} v={s.tr} on={(v) => set({ tr: num(v) })} />
+      <Num id="nhr2" label={t("np_hr2")} v={s.hr2} on={(v) => set({ hr2: Math.max(0, num(v)) })} />
       <p className="hint wide">{t("np_ribsHint")}</p>
     </div> },
+    { id: "stack", group: "part", title: t("np_stack"), sum: stk.length ? `${stk.map((l) => t(`lay_${l.mat}`)).join(" + ")} · ${tStack} mm` : t("nst_none"), show: true, body: stackBody },
     { id: "concrete", group: "part", title: t(br ? "np_wall" : "np_found"), sum: `${s.conc} · h = ${s.hc}`, show: true, body: <div className="grid2">
       <label><span className="lbl">{t("an_class")}</span><select id="nconc" value={s.conc} onChange={(e) => set({ conc: e.target.value })}>{CONCRETE_CLASSES.map((x) => <option key={x.id}>{x.id}</option>)}</select></label>
       <Num id="nhc" label={t(br ? "np_hw" : "np_hc")} v={s.hc} on={(v) => set({ hc: num(v) })} />
       <Num id="nlc" label={t(br ? "np_Lcw" : "np_Lc")} v={s.Lc} ph="∞" on={(v) => set({ Lc: v })} />
       <Num id="nbc" label={t(br ? "np_Bcw" : "np_Bc")} v={s.Bc} ph="∞" on={(v) => set({ Bc: v })} />
-      {!br && <Num id="ngr" label={t("np_grout")} v={s.grout} on={(v) => set({ grout: num(v) })} />}
       <label className="wide chk"><input id="ncr" type="checkbox" checked={s.cracked} onChange={(e) => set({ cracked: e.target.checked })} />{t("an_cracked")}</label>
       <label className="wide chk"><input id="nreinf" type="checkbox" checked={s.reinf} onChange={(e) => set({ reinf: e.target.checked })} />{t("np_reinf")}</label>
       <p className="hint wide">{t("np_concHint")}</p>
@@ -415,7 +577,9 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
     { id: "anchorJ", group: "joint", title: t(br ? "nj_anchorsW" : "nj_anchors"), sum: `${pts.length} × M${s.ad} · ${t(`at_${s.aType}`)}`, show: true, body: <div className="grid2">
       <label className="wide"><span className="lbl">{t("an_type")}</span><select id="natype" value={s.aType} onChange={(e) => set({ aType: e.target.value as AnchorType })}>{types.map((x) => <option key={x} value={x}>{t(`at_${x}`)}</option>)}</select></label>
       <label><span className="lbl">{t("bo_d")}</span><select id="nad" value={s.ad} onChange={(e) => set({ ad: Number(e.target.value) })}>{BOLT_DIAMETERS.map((x) => <option key={x} value={x}>M{x}</option>)}</select></label>
-      <label><span className="lbl">{t("an_steel")}</span><select id="nast" value={s.aSteel} onChange={(e) => set({ aSteel: e.target.value })}>{ANCHOR_STEELS.map((x) => <option key={x.id}>{x.id}</option>)}</select></label>
+      <label><span className="lbl">{t("an_steel")}</span><select id="nast" value={s.aSteel} onChange={(e) => set({ aSteel: e.target.value, ...(e.target.value.startsWith("A4") || e.target.value.startsWith("A2") ? { mAnchor: "stainless" as const } : s.mAnchor === "stainless" ? { mAnchor: "carbon" as const } : {}) })}>{ANCHOR_STEELS.map((x) => <option key={x.id}>{x.id}</option>)}</select></label>
+      {metalSel("namet", s.mAnchor, (m) => set({ mAnchor: m }), ["carbon", "galv", "stainless"])}
+      <label className="chk"><input id="naiso" type="checkbox" checked={s.aIso} onChange={(e) => set({ aIso: e.target.checked })} />{t("nj_aIso")}</label>
       <Num id="nahef" label={t("an_hef")} v={s.ahef} on={(v) => set({ ahef: num(v) })} />
       {s.aType === "bonded" && <Num id="natau" label={t("an_tau")} v={s.aTau} step={0.5} on={(v) => set({ aTau: num(v) })} />}
       {s.aType === "mechanical" && <Num id="nanrkp" label={t("an_NRkp")} v={s.aNRkp} ph="ETA" on={(v) => set({ aNRkp: v })} />}
@@ -446,7 +610,31 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
   const open = (id: PartId | JointId | "loads") => set({ sel: s.sel === id ? ("" as NodeState["sel"]) : id });
   const pick = (id: PartId | JointId) => set({ sel: id === "anchors" ? "anchorJ" : id });
 
-  const cols: (keyof NodeCombo)[] = br ? ["P", "H", "Q"] : ["N", "My", "Vz", "Mz", "Vy"];
+  const cols: ForceKey[] = br ? ["P", "H", "Q"] : ["N", "My", "Vz", "Mz", "Vy", "T"];
+  const gen = s.cMode === "cases" ? casesToCombos(s.cases, code) : [];
+  const setCase = (k: number, p: Partial<NodeCase>) => set({ cases: s.cases.map((c, j) => (j === k ? { ...c, ...p } : c)) });
+  const cats: LoadCategory[] = ["G", "L", "Q", "A"];
+  const casesTable = (
+    <div className="combo-table">
+      <table>
+        <thead><tr><th>{t("nl_case")}</th><th>{t("nl_cat")}</th><th>γ_f</th>{cols.map((c) => <th key={c}>{t(`nl_${c}`)}</th>)}<th /></tr></thead>
+        <tbody>{s.cases.map((c, k) => (
+          <tr key={k}>
+            <td><input id={`kl${k}`} className="cname" value={c.label} onChange={(e) => setCase(k, { label: e.target.value })} /></td>
+            <td><select id={`kc${k}`} value={c.cat} onChange={(e) => { const cat = e.target.value as LoadCategory; setCase(k, { cat, gf: GF[code][cat] }); }}>{cats.map((x) => <option key={x} value={x}>{x}</option>)}</select></td>
+            <td><input id={`kg${k}`} type="number" step={0.05} value={c.gf ?? GF[code][c.cat]} onChange={(e) => setCase(k, { gf: num(e.target.value) })} /></td>
+            {cols.map((col) => <td key={col}><input id={`k${col}${k}`} type="number" value={(c[col] as number | undefined) ?? ""} placeholder="0" onChange={(e) => setCase(k, { [col]: e.target.value === "" ? undefined : num(e.target.value) })} /></td>)}
+            <td>{s.cases.length > 1 && <button className="ghost xbtn" aria-label="remove" onClick={() => set({ cases: s.cases.filter((_, j) => j !== k) })}>×</button>}</td>
+          </tr>))}
+        </tbody>
+      </table>
+      <button id="addcase" className="ghost" onClick={() => set({ cases: [...s.cases, { label: `Q${s.cases.length + 1}`, cat: "Q", gf: GF[code].Q }] })}>+ {t("nl_addCase")}</button>
+      <p className="hint">{t("nl_casesHint")}</p>
+      <details className="gen-list"><summary>{t("nl_generated")}: {gen.length}</summary>
+        <ol>{gen.map((g) => <li key={g.combo.name}><b>{g.combo.name}</b> {g.text}</li>)}</ol>
+      </details>
+    </div>
+  );
   const setCombo = (k: number, p: Partial<NodeCombo>) => set({ combos: s.combos.map((c, j) => (j === k ? { ...c, ...p } : c)) });
   const loads = (
     <div className="combo-table">
@@ -474,6 +662,21 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
     </div>
   );
 
+  const nm = (x?: string): string => {
+    if (!x) return "";
+    if (x.includes("|")) return x.split("|").map(nm).join(" — ");
+    if (x.includes(",")) return x.split(",").map(nm).join(", ");
+    if (x.startsWith("lay_")) { const [id, n] = x.split("#"); return `${t(id)} (${t("nst_layer")} ${n})`; }
+    return t({ part_profile: br ? "np_bracket" : "np_column", part_plate: "np_plate", part_anchors: "nm_anchors", part_concrete: br ? "np_wall" : "np_found" }[x] ?? x);
+  };
+  const compatList = r && (
+    <ul className="compat">
+      {r.compat.length === 0 && <li className="info">{t("cmp_none")}</li>}
+      {r.compat.map((n, k) => <li key={k} className={n.level}><span className="cmp-ic">{n.level === "bad" ? "✕" : n.level === "warn" ? "!" : "i"}</span>
+        <span>{t(`cmp_${n.key}`).replace("{a}", nm(n.a)).replace("{b}", nm(n.b))}</span></li>)}
+      <li className="info"><span className="cmp-ic">i</span><span>{t("cmp_stickout").replace("{v}", String(Math.ceil(r.anchorStickout / 5) * 5))}</span></li>
+    </ul>
+  );
   const summaryTitle = `${t(`nt_${s.tmpl}`)} · ${sec.name}`;
   const summarySub = `${s.L}×${s.B}×${s.t} · ${pts.length}×M${s.ad} · ${s.conc}`;
   const cur = r?.combos[ci];
@@ -482,7 +685,8 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
   const envelopeList = r && <CheckList checks={r.envelope.map((c) => ({ ...c, clause: `${c.clause} · ${t("nl_combo")} ${c.combo}` }))} t={t} />;
   const summary = r && (
     <div className={`summary ${st}`}>
-      <div className="summary-main"><div className="eyebrow">{t("nd_node")}</div><div className="profile">{summaryTitle}</div><div className="meta">{summarySub}</div></div>
+      <div className="summary-main"><div className="eyebrow">{t("nd_node")}</div><div className="profile">{summaryTitle}</div><div className="meta">{summarySub}</div>
+        {r.compat.some((n) => n.level === "bad") && <div className="pill fail compat-pill">{t("nd_compatBad")}</div>}</div>
       <div className="summary-util"><div className="eyebrow">{t("rep_maxutil")}</div><div className="big">{pct(r.maxUtil)}</div><div className={`pill ${st}`}>{r.ok ? t("ok") : t("fail")}</div></div>
       {gov && <div className="summary-gov"><div className="eyebrow">{t("governing")}</div><div>{t(`chk_${gov.key}`)}</div><div className="meta">{t("nl_combo")} {gov.combo}</div></div>}
     </div>
@@ -501,13 +705,20 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
       <aside className="inputs">
         <button className="ghost kind-back" onClick={() => set({ tmpl: null })}>← {t("nd_change")}</button>
         <fieldset><legend><span className="step">1</span>{t("nd_parts")}</legend>
+          <label className="env"><span className="lbl">{t("nd_env")}</span><select id="nenv" value={s.env} onChange={(e) => set({ env: e.target.value as Exposure })}>{EXPOSURES.map((x) => <option key={x} value={x}>{t(`env_${x}`)}</option>)}</select></label>
           <div className="parts">{parts.filter((x) => x.group === "part" && x.show).map(card)}</div>
           {!s.ribs && !s.ribTips && <button id="addribs" className="ghost add-part" onClick={() => set({ ribs: true, sel: "ribs" })}>+ {t("np_addRibs")}</button>}
         </fieldset>
         <fieldset><legend><span className="step">2</span>{t("nd_joints")}</legend>
           <div className="parts">{parts.filter((x) => x.group === "joint" && x.show).map(card)}</div>
         </fieldset>
-        <fieldset><legend><span className="step">3</span>{t("nd_loads")}</legend>{loads}</fieldset>
+        <fieldset><legend><span className="step">3</span>{t("nd_loads")}</legend>
+          <div className="seg wide" role="group">
+            <button id="cm-manual" className={s.cMode !== "cases" ? "on" : ""} onClick={() => set({ cMode: "manual" })}>{t("nl_manual")}</button>
+            <button id="cm-cases" className={s.cMode === "cases" ? "on" : ""} onClick={() => set({ cMode: "cases" })}>{t("nl_fromCases")}</button>
+          </div>
+          {s.cMode === "cases" ? casesTable : loads}
+        </fieldset>
         {code === "DBN" && (
           <details className="adv"><summary>{t("advanced")}<span className="adv-hint">γc, γn</span></summary>
             <div className="adv-group"><div className="grid2">
@@ -528,6 +739,7 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
               <NodeScheme s={s} p={prof} r={r} combo={ci} onPick={pick} sel={s.sel} set={set} pts={pts} />
               <p className="hint">{t("nd_schemeHint")}</p>
             </div>
+            <div className="panel"><h3>{t("nd_compat")}</h3>{compatList}</div>
             <div className="panel"><h3>{t("nl_byCombo")}</h3>{comboTable}<p className="hint">{t("nl_byComboHint")}</p></div>
             {cur && <div className="panel"><h3>{t("conn_values")} · {t("nl_combo")} {cur.name}</h3>
               <table className="conn-values"><tbody>{cur.values.map((v) => <tr key={v.k}><td>{v.k}</td><td className="mono">{v.v}</td></tr>)}</tbody></table></div>}
@@ -556,6 +768,8 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
               <div className="rep-scheme"><NodeScheme s={s} p={prof} r={r} combo={r.governing} onPick={() => undefined} sel="" set={() => undefined} pts={pts} interactive={false} /></div>
               <h2>{t("nd_parts")}</h2>
               <table className="conn-values"><tbody>{parts.filter((x) => x.show).map((x) => <tr key={x.id}><td>{x.title}</td><td className="mono">{x.sum}</td></tr>)}</tbody></table>
+              <h2>{t("nd_compat")}</h2>
+              {compatList}
               <h2>{t("nl_byCombo")}</h2>
               {comboTable}
               <h2>{t("rep_checks")}</h2>

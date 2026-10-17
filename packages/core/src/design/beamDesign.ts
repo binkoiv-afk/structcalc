@@ -244,7 +244,8 @@ export interface SelectionResult {
 /** Подбор: самый легкий профиль семейства, проходящий все проверки. */
 export function selectBeam(inp: BeamDesignInput, family: string): SelectionResult {
   const tried: SelectionResult["tried"] = [];
-  for (const s of familySections(family)) {
+  // швелери й кутики в «Моїх перерізах» не підбираються для балки (несиметричні у площині згину)
+  for (const s of familySections(family).filter((x) => x.kind === "I" || x.kind === "RHS" || x.kind === "CHS")) {
     const r = designBeam(inp, s);
     tried.push({ name: s.name, mass: s.mass, util: r.member.maxUtil });
     if (r.member.ok) return { best: r, tried };

@@ -1,6 +1,6 @@
 // Користувацькі матеріали і перерізи: зберігаються в застосунку, тут лише реєструються в каталогах.
 
-import { chsSection, iSection, rhsSection, Section } from "../geometry/sections";
+import { angleSection, channelSection, chsSection, iAsymSection, iSection, rhsSection, Section } from "../geometry/sections";
 import type { CodeId } from "../codes/types";
 import { STEELS, SteelGrade } from "./materials";
 import { FAMILIES, resetFamilyCache } from "./profiles";
@@ -40,11 +40,14 @@ export function steelsFor(code: CodeId): SteelGrade[] {
   return STEELS.filter((x) => x.code === code);
 }
 
-export type CustomSectionType = "weldedI" | "rolledI" | "rhs" | "chs";
+export type CustomSectionType = "weldedI" | "rolledI" | "channel" | "angle" | "rhs" | "chs";
 export interface CustomSectionDef {
   name: string;
   type: CustomSectionType;
-  h: number; b: number; tw: number; tf: number; r?: number; t?: number; d?: number;
+  /** r — радіус заокруглення (прокат) або катет поясного шва (зварний); ro — зовнішній радіус труби */
+  h: number; b: number; tw: number; tf: number; r?: number; t?: number; d?: number; ro?: number;
+  /** зварний двотавр з різними полицями: верхня b × tf (основні поля), нижня b2 × tf2 */
+  b2?: number; tf2?: number;
   /** RHS/CHS: гарячекатаний (інакше гнутий) */
   hot?: boolean;
 }
@@ -54,9 +57,14 @@ export const CUSTOM_FAMILY = "CUSTOM";
 export function buildCustomSection(d: CustomSectionDef): Section {
   const opts = { family: CUSTOM_FAMILY };
   switch (d.type) {
-    case "weldedI": return iSection(d.name, d.h, d.b, d.tw, d.tf, 0, { ...opts, fabrication: "welded" });
+    case "weldedI":
+      return (d.b2 && d.b2 !== d.b) || (d.tf2 && d.tf2 !== d.tf)
+        ? iAsymSection(d.name, d.h, d.b, d.tf, d.b2 || d.b, d.tf2 || d.tf, d.tw, d.r ?? 0, { ...opts, fabrication: "welded" })
+        : iSection(d.name, d.h, d.b, d.tw, d.tf, d.r ?? 0, { ...opts, fabrication: "welded" });
     case "rolledI": return iSection(d.name, d.h, d.b, d.tw, d.tf, d.r ?? 0, { ...opts, fabrication: "hot" });
-    case "rhs": return rhsSection(d.name, d.h, d.b, d.t ?? 4, { ...opts, fabrication: d.hot ? "hot" : "cold" });
+    case "channel": return channelSection(d.name, d.h, d.b, d.tw, d.tf, d.r ?? 0, opts);
+    case "angle": return angleSection(d.name, d.h, d.b, d.t ?? d.tw, d.r ?? 0, opts);
+    case "rhs": return rhsSection(d.name, d.h, d.b, d.t ?? 4, { ...opts, fabrication: d.hot ? "hot" : "cold", ro: d.ro || undefined });
     case "chs": return chsSection(d.name, d.d ?? d.h, d.t ?? 4, { ...opts, fabrication: d.hot ? "hot" : "cold" });
   }
 }

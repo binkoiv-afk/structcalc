@@ -1,6 +1,8 @@
 // Переводы интерфейса. Новый язык — новый объект с теми же ключами.
 import { CONN } from "./i18nConn";
 import { NODE } from "./i18nNode";
+import { SORT } from "./i18nSort";
+import { STACK } from "./i18nStack";
 export const LANGS = ["uk", "ru", "en", "pl", "de", "fr"] as const;
 export type Lang = (typeof LANGS)[number];
 
@@ -579,7 +581,7 @@ const fr: Dict = {
 };
 
 export const DICTS: Record<Lang, Dict> = { uk, ru, en, pl, de, fr };
-for (const l of ["uk", "ru", "en"] as const) Object.assign(DICTS[l], CONN[l], NODE[l]);
+for (const l of ["uk", "ru", "en"] as const) Object.assign(DICTS[l], CONN[l], NODE[l], SORT[l], STACK[l]);
 
 export function makeT(lang: Lang) {
   const d = DICTS[lang];

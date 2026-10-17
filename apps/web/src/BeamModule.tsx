@@ -1,6 +1,6 @@
 import { useDeferredValue, useMemo, useState } from "react";
 import {
-  BeamDesignInput, CodeId, DEFAULT_FACTORS, designBeam, FAMILIES, familySections, findSection,
+  BeamDesignInput, CodeId, DEFAULT_FACTORS, designBeam, familiesFor, familySections, findSection,
   selectBeam, STEELS, SupportType, UserLoad,
 } from "@structcalc/core";
 import { Scheme } from "./Scheme";
@@ -8,6 +8,9 @@ import { CheckList, Combos, Diagrams, SectionProps, Summary } from "./Results";
 import { Report } from "./Report";
 import { CollectorState, LoadCollector } from "./LoadCollector";
 import { TriedList } from "./TriedList";
+import { FamilyOptions } from "./SectionModule";
+
+const beamSizes = (f: string) => familySections(f).filter((x) => x.kind === "I" || x.kind === "RHS" || x.kind === "CHS");
 
 type Mode = "check" | "select";
 type Tab = "results" | "report";
@@ -56,7 +59,7 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
         const sel = selectBeam(dInput, s.family);
         return { result: sel.best, tried: sel.tried, error: undefined as string | undefined };
       }
-      const sec = findSection(s.family, s.size) ?? familySections(s.family)[0];
+      const sec = findSection(s.family, s.size) ?? beamSizes(s.family)[0];
       return { result: designBeam(dInput, sec), tried: undefined, error: undefined };
     } catch (e) {
       return { result: undefined, tried: undefined, error: String((e as Error).message) };
@@ -196,14 +199,14 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
                 </select>
               </label>
               <label className="wide"><span className="lbl">{t("family")}</span>
-                <select id="family" value={s.family} onChange={(e) => set({ family: e.target.value, size: familySections(e.target.value)[0].name })}>
-                  {FAMILIES.map((f) => <option key={f.id} value={f.id}>{f.id === "CUSTOM" ? t("fam_CUSTOM") : `${f.id.replace("_", " ")} · ${f.standard}`}</option>)}
+                <select id="family" value={s.family} onChange={(e) => set({ family: e.target.value, size: beamSizes(e.target.value)[0]?.name ?? "" })}>
+                  <FamilyOptions fams={familiesFor("beam")} t={t} />
                 </select>
               </label>
               {s.mode === "check" && (
                 <label className="wide"><span className="lbl">{t("size")}</span>
                   <select id="size" value={s.size} onChange={(e) => set({ size: e.target.value })}>
-                    {familySections(s.family).map((x) => <option key={x.name}>{x.name}</option>)}
+                    {beamSizes(s.family).map((x) => <option key={x.name}>{x.name}</option>)}
                   </select>
                 </label>
               )}
