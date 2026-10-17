@@ -1,7 +1,9 @@
 // Стартовый экран: сначала выбирается тип расчета, затем открывается только нужный ввод.
 import { CONN_ICONS, ConnKind, KINDS } from "./ConnectionsModule";
+import type { AsmTemplate } from "@structcalc/core";
+import { ASM_ICONS } from "./AssemblyModule";
 
-export type Screen = "home" | "beam" | "column" | "section" | "connection" | "generator" | "library" | "node";
+export type Screen = "home" | "beam" | "column" | "section" | "connection" | "generator" | "library" | "node" | "assembly";
 
 const ICONS: Record<string, JSX.Element> = {
   beam: <><path d="M6 22h36" strokeWidth="3" /><path d="M6 22l-3 6h6zM42 22l-3 6h6z" /><path d="M10 10v8M17 10v8M24 10v8M31 10v8M38 10v8" /></>,
@@ -22,9 +24,10 @@ const ICONS: Record<string, JSX.Element> = {
 
 // Порядок — за ходом проєктування: елементи → вузли і з'єднання → довідники → інше.
 // Збір снігу і вітру — не окремий розрахунок, а крок «Навантаження» всередині елемента.
-type Item = { id: string; ready: boolean; conn?: ConnKind };
+type Item = { id: string; ready: boolean; conn?: ConnKind; asm?: AsmTemplate };
 const GROUPS: { key: string; hint?: string; items: Item[] }[] = [
-  { key: "grp_members", hint: "grp_members_h", items: [{ id: "beam", ready: true }, { id: "column", ready: true }, { id: "truss", ready: false }, { id: "frame", ready: false }] },
+  { key: "grp_members", hint: "grp_members_h", items: [{ id: "beam", ready: true }, { id: "column", ready: true }, { id: "truss", ready: true, asm: "truss" }, { id: "frame", ready: true, asm: "portal" }] },
+  { key: "grp_asm", hint: "grp_asm_h", items: [{ id: "assembly", ready: true }, { id: "canopy", ready: true, asm: "canopy" }, { id: "bracket", ready: true, asm: "bracket" }] },
   { key: "grp_conn", hint: "grp_conn_h", items: [
     { id: "node", ready: true },
     ...KINDS.map((k) => ({ id: `conn_${k}`, ready: true, conn: k })),
@@ -33,7 +36,7 @@ const GROUPS: { key: string; hint?: string; items: Item[] }[] = [
   { key: "grp_soon", items: [{ id: "dynamic", ready: false }, { id: "concrete", ready: false }, { id: "timber", ready: false }, { id: "thermal", ready: false }] },
 ];
 
-export function Home({ go, t }: { go: (s: Screen, conn?: ConnKind) => void; t: (k: string) => string }) {
+export function Home({ go, goAsm, t }: { go: (s: Screen, conn?: ConnKind) => void; goAsm: (k: AsmTemplate | null) => void; t: (k: string) => string }) {
   return (
     <main className="home">
       <h1 className="home-title">{t("home_title")}</h1>
@@ -45,10 +48,10 @@ export function Home({ go, t }: { go: (s: Screen, conn?: ConnKind) => void; t: (
           <div className="cards">
             {g.items.map((it) => (
               <button key={it.id} id={`card-${it.id}`} className={`card ${it.ready ? "" : "soon"} ${it.conn ? "compact" : ""}`} disabled={!it.ready}
-                onClick={() => (it.conn ? go("connection", it.conn) : go(it.id as Screen))}>
-                <svg viewBox="0 0 48 48" className="card-icon" aria-hidden="true">{it.conn ? CONN_ICONS[it.conn] : ICONS[it.id]}</svg>
-                <span className="card-title">{t(it.conn ? it.id : `mod_${it.id}`)}</span>
-                <span className="card-desc">{t(it.conn ? `${it.id}_d` : `mod_${it.id}_d`)}</span>
+                onClick={() => (it.conn ? go("connection", it.conn) : it.asm ? goAsm(it.asm) : it.id === "assembly" ? goAsm(null) : go(it.id as Screen))}>
+                <svg viewBox="0 0 48 48" className="card-icon" aria-hidden="true">{it.conn ? CONN_ICONS[it.conn] : it.asm ? ASM_ICONS[it.asm] : ICONS[it.id] ?? ASM_ICONS.empty}</svg>
+                <span className="card-title">{t(it.conn ? it.id : it.asm && it.id !== "truss" && it.id !== "frame" ? `at_${it.asm}` : `mod_${it.id}`)}</span>
+                <span className="card-desc">{t(it.conn ? `${it.id}_d` : it.asm ? `at_${it.asm}_d` : `mod_${it.id}_d`)}</span>
                 {!it.ready && <span className="card-soon">{t("soon")}</span>}
               </button>
             ))}

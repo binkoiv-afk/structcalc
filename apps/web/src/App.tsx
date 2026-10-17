@@ -9,14 +9,16 @@ import { SectionModule, SectionState, initialSection } from "./SectionModule";
 import { ConnectionsModule, ConnKind, ConnState, initialConn, pickKind } from "./ConnectionsModule";
 import { CollectorState, initialCollector } from "./LoadCollector";
 import { initialNode, NodeModule, NodeState } from "./NodeModule";
+import { AssemblyModule, AsmState, initialAsm } from "./AssemblyModule";
+import { asmTemplate, AsmTemplate } from "@structcalc/core";
 
 interface AppState {
   lang: Lang; code: CodeId; screen: Screen;
-  beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState; conn: ConnState; gen: GenState; lib: LibState; node: NodeState;
+  beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState; conn: ConnState; gen: GenState; lib: LibState; node: NodeState; asm: AsmState;
 }
 
 const KEY = "structcalc.v2";
-const initial: AppState = { lang: "uk", code: "DBN", screen: "home", beam: initialBeam, column: initialColumn, lc: initialCollector, sec: initialSection, conn: initialConn, gen: initialGen, lib: initialLib, node: initialNode };
+const initial: AppState = { lang: "uk", code: "DBN", screen: "home", beam: initialBeam, column: initialColumn, lc: initialCollector, sec: initialSection, conn: initialConn, gen: initialGen, lib: initialLib, node: initialNode, asm: initialAsm };
 
 function loadState(): AppState {
   try {
@@ -25,7 +27,7 @@ function loadState(): AppState {
       const o = JSON.parse(raw);
       return {
         ...initial, ...o, screen: o.screen === "loads" ? "home" : o.screen, beam: { ...initialBeam, ...o.beam }, column: { ...initialColumn, ...o.column },
-        lc: { ...initialCollector, ...o.lc }, sec: { ...initialSection, ...o.sec }, conn: { ...initialConn, ...o.conn }, gen: { ...initialGen, ...o.gen }, lib: { ...initialLib, ...o.lib }, node: { ...initialNode, ...o.node },
+        lc: { ...initialCollector, ...o.lc }, sec: { ...initialSection, ...o.sec }, conn: { ...initialConn, ...o.conn }, gen: { ...initialGen, ...o.gen }, lib: { ...initialLib, ...o.lib }, node: { ...initialNode, ...o.node }, asm: { ...initialAsm, ...o.asm },
       };
     }
     const old = localStorage.getItem("structcalc.beam"); // версия 0.1
@@ -58,6 +60,11 @@ export function App() {
     set(conn ? { screen, conn: { ...s.conn, ...pickKind(s.conn, conn) } } : { screen });
     window.scrollTo(0, 0);
   };
+  const goAsm = (k: AsmTemplate | null) => {
+    const a = k ? asmTemplate(k, s.code) : null;
+    set({ screen: "assembly", asm: { ...initialAsm, tmpl: k, asm: a, loadsOf: a?.cases[0]?.id ?? "" } });
+    window.scrollTo(0, 0);
+  };
   const setCode = (code: CodeId) => {
     const steel = code === "DBN" ? "C245" : "S235";
     set({ code, beam: { ...s.beam, steel, ...DEFAULT_FACTORS[code] }, column: { ...s.column, steel } });
@@ -74,7 +81,7 @@ export function App() {
           {s.screen !== "home" && (
             <>
               <span className="crumb-sep">/</span>
-              <span className="module">{t(`mod_${s.screen}`)}{s.screen === "connection" && s.conn.kind ? ` · ${t(`conn_${s.conn.kind}`)}` : ""}{s.screen === "node" && s.node.tmpl ? ` · ${t(`nt_${s.node.tmpl}`)}` : ""}</span>
+              <span className="module">{t(`mod_${s.screen}`)}{s.screen === "connection" && s.conn.kind ? ` · ${t(`conn_${s.conn.kind}`)}` : ""}{s.screen === "node" && s.node.tmpl ? ` · ${t(`nt_${s.node.tmpl}`)}` : ""}{s.screen === "assembly" && s.asm.tmpl ? ` · ${t(`at_${s.asm.tmpl}`)}` : ""}</span>
             </>
           )}
         </div>
@@ -91,7 +98,7 @@ export function App() {
         </div>
       </header>
 
-      {s.screen === "home" && <Home go={go} t={t} />}
+      {s.screen === "home" && <Home go={go} goAsm={goAsm} t={t} />}
       {s.screen === "beam" && (
         <BeamModule code={s.code} s={beam} set={(p) => set({ beam: { ...s.beam, ...p } })}
           lc={s.lc} setLc={(p) => set({ lc: { ...s.lc, ...p } })} t={t} />
@@ -100,6 +107,7 @@ export function App() {
       {s.screen === "connection" && <ConnectionsModule code={s.code} s={s.conn} set={(p) => set({ conn: { ...s.conn, ...p } })} t={t} />}
       {s.screen === "node" && <NodeModule code={s.code} s={{ ...s.node, family: s.node.family === "MANUAL" ? "MANUAL" : okFam(s.node.family, "HEB"), pSteel: okSteel(s.node.pSteel), plSteel: okSteel(s.node.plSteel) }} set={(p) => set({ node: { ...s.node, ...p } })} t={t} />}
       {s.screen === "generator" && <GeneratorModule code={s.code} s={s.gen} set={(p) => set({ gen: { ...s.gen, ...p } })} lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
+      {s.screen === "assembly" && <AssemblyModule code={s.code} s={s.asm} set={(p) => set({ asm: { ...s.asm, ...p } })} t={t} />}
       {s.screen === "library" && <LibraryModule lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
       {s.screen === "section" && <SectionModule code={s.code} s={sec} set={(p) => set({ sec: { ...s.sec, ...p } })} lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
     </div>

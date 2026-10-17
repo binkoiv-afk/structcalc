@@ -430,3 +430,73 @@ main.library .inputs { display: flex; flex-direction: column; gap: 14px; }
 .gen-list summary { cursor: pointer; color: var(--accent); }
 .gen-list ol { margin: 6px 0 0; padding-left: 18px; font-family: var(--mono); }
 .compat-pill { margin-top: 6px; display: inline-block; }
+
+/* ---- Збірка конструкції */
+.layout.asm { grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); }
+@media (max-width: 960px) { .layout.asm { grid-template-columns: minmax(0, 1fr); } }
+.seg.tools { display: flex; }
+.seg.tools button, .seg.wide button { flex: 1; padding-inline: 6px; }
+.seg.wide { display: flex; width: 100%; }
+.card-h { margin: 6px 0 2px; font-size: 15px; }
+.dof-row { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; }
+.base-ed, .end-ed, .pl-row { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.base-ed h4, .part-body h4, .case-ed h4 { margin: 6px 0 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.end-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.end-head .seg button { padding: 3px 10px; }
+.case-tabs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 6px; }
+.case-tabs button.ghost { padding: 3px 10px; }
+.case-tabs button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.case-ed { display: flex; flex-direction: column; gap: 6px; }
+.ld-row { display: grid; grid-template-columns: minmax(56px, auto) repeat(3, minmax(0, 1fr)) auto; gap: 6px; align-items: center; }
+.ld-row select { min-width: 0; }
+.view-panel { padding: 8px; }
+.view-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+.view-bar .seg button { padding: 4px 10px; }
+.asm-table tr { cursor: pointer; }
+.asm-table tr.on td { background: var(--accent-soft); }
+.asm-table tr.warn td:last-child { color: var(--warn); font-weight: 600; }
+.asm-table tr.fail td:last-child { color: var(--fail); font-weight: 600; }
+.asm-table tr.ok td:last-child { color: var(--ok); }
+
+.asm-view { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; max-height: 70vh; touch-action: none; user-select: none; cursor: grab; border-radius: 6px; }
+.asm-view.rotating { cursor: grabbing; }
+.av-bg { fill: var(--soft); }
+.av-panel { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 0.8; stroke-dasharray: 4 3; cursor: pointer; }
+.av-panel.on { fill: rgba(36, 86, 196, 0.26); stroke-width: 1.6; stroke-dasharray: none; }
+.av-hit { stroke: transparent; stroke-width: 14; cursor: pointer; }
+.av-member { stroke: var(--ink); stroke-width: 2.6; stroke-linecap: round; pointer-events: none; }
+.av-member.ok { stroke: var(--ok); }
+.av-member.warn { stroke: var(--warn); }
+.av-member.fail { stroke: var(--fail); }
+.av-member.on { stroke-width: 5; filter: drop-shadow(0 0 3px var(--accent)); }
+.av-pin { fill: var(--panel); stroke: var(--ink); stroke-width: 1.3; pointer-events: none; }
+.av-rigid { fill: var(--ink); pointer-events: none; }
+.av-rigid.k-bolts, .av-rigid.k-rivets, .av-rigid.k-screws { fill: var(--accent); }
+.av-txt { font: 10.5px var(--font); fill: var(--ink); pointer-events: none; paint-order: stroke; stroke: var(--soft); stroke-width: 3px; stroke-linejoin: round; }
+.av-txt.ok { fill: var(--ok); } .av-txt.warn { fill: var(--warn); } .av-txt.fail { fill: var(--fail); font-weight: 600; }
+.av-txt.dg { fill: var(--accent); font-family: var(--mono); }
+.av-txt.ld { fill: var(--load-q); font-family: var(--mono); font-size: 10px; }
+.av-txt.nid { fill: var(--muted); font-weight: 600; }
+.av-txt.ax { fill: var(--muted); font-weight: 600; font-size: 11px; }
+.av-diag { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.1; pointer-events: none; }
+.av-diag.N { fill: var(--warn-soft); stroke: var(--warn); }
+.av-def { fill: none; stroke: var(--fail); stroke-width: 1.4; stroke-dasharray: 5 3; pointer-events: none; }
+.av-load line { stroke: var(--load-q); stroke-width: 1.3; }
+.av-arrhead { fill: var(--load-q); }
+.av-node { cursor: pointer; }
+.av-node circle { fill: var(--panel); stroke: var(--ink); stroke-width: 1.4; }
+.av-node.on circle { fill: var(--accent); stroke: var(--accent); }
+.av-node.mark circle { fill: var(--warn); stroke: var(--warn); }
+.av-sup { fill: none; stroke: var(--muted); stroke-width: 1.3; }
+.av-sup rect, .av-sup path:first-child:not(:only-child) { fill: var(--soft); }
+.av-sup.brace { stroke: var(--accent); stroke-dasharray: 2 2; }
+.av-axis { stroke: var(--muted); stroke-width: 1.4; }
+.av-reset { cursor: pointer; }
+.av-reset rect { fill: var(--panel); stroke: var(--line); }
+.av-reset text { font-size: 14px; fill: var(--ink); }
+@media (max-width: 600px) { .asm-view { aspect-ratio: 1 / 1; } .ld-row { grid-template-columns: minmax(48px, auto) repeat(3, minmax(0, 1fr)) auto; } }
+@media print { .asm-view { max-height: none; } .rep-scheme .asm-view { aspect-ratio: 16 / 10; } }
+.view-bar select { width: auto; max-width: 100%; }
+.ld-row label.mini { flex-direction: row; align-items: center; }
+.ld-row label.mini span { flex: none; }
+@media (max-width: 600px) { .asm-table { display: block; overflow-x: auto; max-width: 100%; } .asm-table td, .asm-table th { padding: 4px 6px; font-size: 12.5px; } }
