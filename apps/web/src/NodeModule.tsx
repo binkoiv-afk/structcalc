@@ -8,10 +8,12 @@ import {
 } from "@structcalc/core";
 import { CheckList, pct, T, utilState } from "./Results";
 import { FamilyOptions } from "./SectionModule";
+import { isJointKind, jointInit, JointModule, JointReturn, JointState } from "./JointModule";
+import type { JointKind } from "@structcalc/core";
 
-export type NodeTmpl = "baseHinged" | "baseRigid" | "bracket";
-const READY: NodeTmpl[] = ["baseHinged", "baseRigid", "bracket"];
-const SOON = ["beamSeat", "finPlate", "endPlate", "flangeSplice", "coverSplice", "gusset", "cantilever"];
+export type NodeTmpl = "baseHinged" | "baseRigid" | "bracket" | JointKind;
+const READY: NodeTmpl[] = ["baseHinged", "baseRigid", "bracket", "finPlate", "endPlate", "flangeSplice", "coverSplice", "gusset", "beamSeat", "cantilever"];
+const SOON: string[] = [];
 type PartId = "profile" | "plate" | "ribs" | "stack" | "anchors" | "concrete";
 type JointId = "wProfile" | "wRib" | "anchorJ";
 
@@ -39,6 +41,10 @@ export interface NodeState {
   mProfile: Metal; mPlate: Metal; mAnchor: Metal; aIso: boolean; env: Exposure;
   /** сполучення: вручну або з навантажень за ДБН В.1.2-2 / EN 1990 */
   cMode: "manual" | "cases"; cases: NodeCase[];
+  /** сталевий вузол примикання / стик (шаблони finPlate … cantilever) */
+  j?: JointState;
+  /** база відкрита зі «Збірки» (вузол збірки) */
+  asmLink?: { node: string };
 }
 
 export interface NodeCase extends Omit<NodeCombo, "name"> { label: string; cat: LoadCategory; group?: string; gf?: number }
@@ -63,8 +69,9 @@ const GF: Record<CodeId, Record<LoadCategory, number>> = { DBN: { G: 1.1, L: 1.2
 
 /** Типові параметри шаблону */
 export function pickTmpl(s: NodeState, k: NodeTmpl, code: CodeId): Partial<NodeState> {
+  if (isJointKind(k)) return { tmpl: k, j: jointInit(k, code), asmLink: undefined };
   const st = code === "DBN" ? "C245" : "S235";
-  const base = { tmpl: k, sel: "profile" as const, pSteel: st, plSteel: st };
+  const base = { tmpl: k, sel: "profile" as const, pSteel: st, plSteel: st, asmLink: undefined };
   if (k === "baseHinged") return { ...base, family: "HEB", size: "HEB 200", lever: 0, L: 360, B: 380, t: 25, ribs: false, ribTips: false, aFree: false, kf: 6, milled: false, reinf: true,
     aType: "headed", ad: 20, aSteel: code === "DBN" ? "09Г2С" : "5.6", ahef: 500, anx: 1, any: 2, asx: 0, asy: 290,
     conc: "C20/25", cracked: true, Lc: "800", Bc: "800", hc: 800, grout: 30, friction: true, combos: [{ name: "1", N: 600, Vz: 20 }, { name: "2", N: -40, Vz: 8 }],
@@ -373,7 +380,8 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
 const clamp = (v: number, lim: number) => Math.max(-lim, Math.min(lim, v));
 
 type ForceKey = Exclude<keyof NodeCombo, "name">;
-const FORCE_KEYS: ForceKey[] = ["N", "My", "Mz", "Vz", "Vy", "T", "P", "H", "Q"];
+// N1…N3 — зусилля стрижнів решітки (вузол ферми)
+const FORCE_KEYS = ["N", "My", "Mz", "Vz", "Vy", "T", "P", "H", "Q", "N1", "N2", "N3"] as ForceKey[];
 /** Сполучення з навантажень: ULS і аварійні за ДБН В.1.2-2 (4.18) / EN 1990 (6.10), у кН і кН·м */
 export function casesToCombos(cases: NodeCase[], code: CodeId): { combo: NodeCombo; text: string }[] {
   if (!cases.length) return [];
@@ -394,7 +402,7 @@ const METALS: Metal[] = ["carbon", "galv", "stainless", "aluminium"];
 const EXPOSURES: Exposure[] = ["dry", "outdoor", "aggressive"];
 const LAYER_GROUPS = ["grout", "plastic", "elastomer", "metal", "timber", "insulation"] as const;
 
-export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; set: (p: Partial<NodeState>) => void; t: T }) {
+export function NodeModule({ code, s, set, t, onReturn, onReturnBase }: { code: CodeId; s: NodeState; set: (p: Partial<NodeState>) => void; t: T; onReturn?: (r: JointReturn) => void; onReturnBase?: (s: NodeState) => void }) {
   const [tab, setTab] = useState<"results" | "report">("results");
   const [combo, selCombo] = useState(0);
   const steels = STEELS.filter((x) => x.code === code);
@@ -421,7 +429,7 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
   const kN = 1000, kNm = 1e6;
 
   const calc = useMemo((): { r?: NodeResult; err?: string } => {
-    if (!s.tmpl) return {};
+    if (!s.tmpl || isJointKind(s.tmpl)) return {};
     try {
       const fck = CONCRETE_CLASSES.find((c) => c.id === s.conc)?.fck ?? 20;
       const src = s.cMode === "cases" ? casesToCombos(s.cases, code).map((x) => x.combo) : s.combos;
@@ -462,6 +470,11 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
         </div>
       </main>
     );
+  }
+
+  if (isJointKind(s.tmpl)) {
+    const j = s.j?.kind === s.tmpl ? s.j : jointInit(s.tmpl, code);
+    return <JointModule code={code} s={j} set={(p) => set({ j: { ...j, ...p } })} t={t} back={() => set({ tmpl: null })} onReturn={onReturn} />;
   }
 
   const r = calc.r;
@@ -704,6 +717,11 @@ export function NodeModule({ code, s, set, t }: { code: CodeId; s: NodeState; se
     <main className="layout node">
       <aside className="inputs">
         <button className="ghost kind-back" onClick={() => set({ tmpl: null })}>← {t("nd_change")}</button>
+        {s.asmLink && !br && <div className="jlink">
+          <div>{t("jl_fromAsm")}: <b>{t("asm_base")}</b> · {t("asm_node")} {s.asmLink.node}</div>
+          {onReturnBase && r && <button id="nreturn" className="primary" onClick={() => onReturnBase(s)}>← {t("jl_returnBase")} · {pct(r.maxUtil)}</button>}
+          <p className="hint">{t("jl_linkHintBase")}</p>
+        </div>}
         <fieldset><legend><span className="step">1</span>{t("nd_parts")}</legend>
           <label className="env"><span className="lbl">{t("nd_env")}</span><select id="nenv" value={s.env} onChange={(e) => set({ env: e.target.value as Exposure })}>{EXPOSURES.map((x) => <option key={x} value={x}>{t(`env_${x}`)}</option>)}</select></label>
           <div className="parts">{parts.filter((x) => x.group === "part" && x.show).map(card)}</div>

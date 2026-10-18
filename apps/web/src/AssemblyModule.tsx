@@ -9,6 +9,9 @@ import {
 import { AsmView, Pick, ShowMode, ViewKind } from "./AsmView";
 import { CheckList, pct, T, utilState } from "./Results";
 import { FamilyOptions } from "./SectionModule";
+import type { JointReturn } from "./JointModule";
+import type { NodeState } from "./NodeModule";
+import { baseFromNode, gussetFromNode, jointFromConn, jointKindOf } from "./asmJoint";
 
 export interface AsmState {
   tmpl: AsmTemplate | "empty" | null;
@@ -23,6 +26,8 @@ export interface AsmState {
   combo: number;
   ids: boolean;
   obj: string; elem: string;
+  /** вузли, розраховані в модулі «Вузол»: ключ «стрижень|кінець» */
+  jres?: Record<string, JointReturn>;
 }
 export const initialAsm: AsmState = { tmpl: null, asm: null, sel: null, view: "3d", show: "util", tool: "select", pending: [], loadsOf: "", combo: -1, ids: false, obj: "", elem: "" };
 
@@ -47,7 +52,7 @@ const govU = (cs: { key: string; util: number }[]) => gov(cs)?.util ?? 0;
 
 const nextId = (ids: string[], prefix: string) => { let k = 1; while (ids.includes(`${prefix}${k}`)) k++; return `${prefix}${k}`; };
 
-export function AssemblyModule({ code, s, set, t }: { code: CodeId; s: AsmState; set: (p: Partial<AsmState>) => void; t: T }) {
+export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s: AsmState; set: (p: Partial<AsmState>) => void; t: T; openNode?: (p: Partial<NodeState>) => void }) {
   const [tab, setTab] = useState<"results" | "report">("results");
   const asm = s.asm;
   const setAsm = (p: Partial<Assembly>) => asm && set({ asm: { ...asm, ...p } });
@@ -356,11 +361,12 @@ export function AssemblyModule({ code, s, set, t }: { code: CodeId; s: AsmState;
         <tr key={m.member} className={`${utilState(m.util)} ${sel?.kind === "member" && sel.id === m.member ? "on" : ""}`} onClick={() => set({ sel: { kind: "member", id: m.member } })}>
           <td>{m.member}</td><td className="mono">{m.section}</td><td>{g ? t(`chk_${g.key}`) : "—"}</td><td className="mono">{g?.combo}</td><td className="mono">{pct(m.util)}</td></tr>); })}</tbody></table>
   );
+  const jr = (member: string, end: "i" | "j") => { const x = s.jres?.[`${member}|${end}`]; return x ? `${t(`nt_${x.kind}`)} · ${pct(x.util)}` : "—"; };
   const connTable = r && r.conns.length > 0 && (
-    <table className="conn-values asm-table"><thead><tr><th>{t("asm_joint")}</th><th>{t("asm_connector")}</th><th>{t("governing")}</th><th>{t("rep_maxutil")}</th></tr></thead>
+    <table className="conn-values asm-table"><thead><tr><th>{t("asm_joint")}</th><th>{t("asm_connector")}</th><th>{t("governing")}</th><th>{t("rep_maxutil")}</th><th>{t("asm_nodeRes")}</th></tr></thead>
       <tbody>{r.conns.map((c) => { const g = gov(c.checks); const m = asm.members.find((x) => x.id === c.member)!; return (
         <tr key={`${c.member}${c.end}`} className={utilState(govU(c.checks))} onClick={() => set({ sel: { kind: "member", id: c.member } })}>
-          <td>{c.member} → {t("asm_node")} {c.end === "i" ? m.i : m.j}</td><td>{t(`ck_${c.kind}`)} · {t(`asm_${(c.end === "i" ? m.endI : m.endJ).behaviour}`)}</td><td>{g ? t(`chk_${g.key}`) : "—"}</td><td className="mono">{pct(govU(c.checks))}</td></tr>); })}</tbody></table>
+          <td>{c.member} → {t("asm_node")} {c.end === "i" ? m.i : m.j}</td><td>{t(`ck_${c.kind}`)} · {t(`asm_${(c.end === "i" ? m.endI : m.endJ).behaviour}`)}</td><td>{g ? t(`chk_${g.key}`) : "—"}</td><td className="mono">{pct(govU(c.checks))}</td><td className="mono">{jr(c.member, c.end)}</td></tr>); })}</tbody></table>
   );
   const supTable = r && r.supports.length > 0 && (
     <table className="conn-values asm-table"><thead><tr><th>{t("asm_node")}</th><th>{t("governing")}</th><th>{t("rep_maxutil")}</th></tr></thead>
@@ -392,6 +398,14 @@ export function AssemblyModule({ code, s, set, t }: { code: CodeId; s: AsmState;
         </tbody></table>}
         {mc && <CheckList checks={mc.checks.map((c) => ({ ...c, clause: `${c.clause} · ${t("nl_combo")} ${c.combo}` }))} t={t} />}
         {cc.map((c) => <div key={c.end}><h4>{t("asm_joint")} {t("asm_node")} {c.end === "i" ? selMember.i : selMember.j} · {t(`ck_${c.kind}`)}</h4>
+          {openNode && (() => {
+            const k = jointKindOf(asm, selMember.id, c.end);
+            return k ? <p className="asm-jbtn"><button id={`open-joint-${selMember.id}-${c.end}`} className="ghost" onClick={() => { const j = jointFromConn(asm, r, selMember.id, c.end, code); if (j) openNode({ tmpl: j.kind, j, asmLink: undefined }); }}>
+              {t("asm_openNode")}: {t(`nt_${k}`)} →</button>{s.jres?.[`${selMember.id}|${c.end}`] && <span className="hint"> {t("asm_nodeResHint")}: {jr(selMember.id, c.end)}</span>}</p>
+              : asm.nodes.find((n) => n.id === (c.end === "i" ? selMember.i : selMember.j))?.support === "base"
+                ? <p className="asm-jbtn"><button id={`open-base-${selMember.id}-${c.end}`} className="ghost" onClick={() => { const b = baseFromNode(asm, r, c.end === "i" ? selMember.i : selMember.j); if (b) openNode(b); }}>{t("asm_openNode")}: {t("nt_baseRigid")} →</button></p>
+                : <p className="hint">{t("asm_noJointKind")}</p>;
+          })()}
           <CheckList checks={c.checks.map((x) => ({ ...x, clause: `${x.clause} · ${t("nl_combo")} ${x.combo}` }))} t={t} /></div>)}
       </div>
     );
@@ -413,6 +427,8 @@ export function AssemblyModule({ code, s, set, t }: { code: CodeId; s: AsmState;
           <tr><td>M_x, M_y, M_z, kN·m</td><td className="mono">{R.slice(3).map((v) => (v / 1e6).toFixed(2)).join(" / ")}</td></tr>
         </tbody></table>}
         {comboRes?.u[selNode.id] && <p className="hint">u = {comboRes.u[selNode.id].slice(0, 3).map((v) => v.toFixed(2)).join(" / ")} mm ({t("asm_ulsDisp")})</p>}
+        {openNode && sp?.result && <p className="asm-jbtn"><button id={`open-base-${selNode.id}`} className="ghost" onClick={() => { const b = baseFromNode(asm, r, selNode.id); if (b) openNode(b); }}>{t("asm_openNode")}: {t("nt_baseRigid")} →</button></p>}
+        {openNode && (() => { const g = gussetFromNode(asm, r, selNode.id, code); return g ? <p className="asm-jbtn"><button id={`open-gusset-${selNode.id}`} className="ghost" onClick={() => openNode({ tmpl: "gusset", j: g, asmLink: undefined })}>{t("asm_openNode")}: {t("nt_gusset")} →</button></p> : null; })()}
         {sp?.result && <><h4>{t("asm_base")}</h4><CheckList checks={sp.result.envelope.map((c) => ({ ...c, clause: `${c.clause} · ${t("nl_combo")} ${c.combo}` }))} t={t} /></>}
         {sp?.error && <p className="error">{t(`asm_serr_${sp.error}`)}</p>}
       </div>

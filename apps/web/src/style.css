@@ -504,3 +504,29 @@ main.library .inputs { display: flex; flex-direction: column; gap: 14px; }
 .av-pe.ok { fill: var(--ok); } .av-pe.warn { fill: var(--warn); } .av-pe.fail { fill: var(--fail); }
 .av-pe.on { stroke: var(--accent); stroke-width: 0.9; stroke-opacity: 1; }
 .av-panel.plate { fill: var(--soft); stroke: var(--muted); stroke-dasharray: none; stroke-width: 1.2; }
+
+/* сталеві вузли: три проєкції */
+.jviews { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; align-items: start; }
+.jview { margin: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; }
+.jview figcaption { font-size: 12px; color: var(--muted); padding: 4px 8px 6px; border-top: 1px solid var(--line); }
+.joint-scheme { display: block; width: 100%; height: auto; }
+.jp > path, .jp > rect { stroke: var(--ink); stroke-width: 1.1; vector-effect: non-scaling-stroke; }
+.jp .edge { stroke: var(--ink); stroke-width: 0.7; opacity: 0.7; }
+.jp .hid { stroke: var(--muted); stroke-width: 0.7; stroke-dasharray: 3 2; }
+.jp-steel > path, .jp-steel > rect { fill: var(--soft); }
+.jp-column > path, .jp-column > rect { fill: color-mix(in srgb, var(--soft) 70%, var(--muted) 30%); }
+.jp-plate > path, .jp-plate > rect { fill: var(--accent-soft); fill-opacity: 0.85; }
+.jp-bolt > path, .jp-bolt > rect { fill: var(--ink); fill-opacity: 0.55; stroke-width: 0.6; }
+.jp-head > path, .jp-head > rect { fill: var(--ink); fill-opacity: 0.75; }
+.jp-weld > path, .jp-weld > rect { fill: var(--warn); stroke: var(--warn); }
+.jp-member > path, .jp-member > rect { fill: var(--soft); }
+.jp.bad > path, .jp.bad > rect { fill: var(--fail-soft); stroke: var(--fail); }
+.jp.on > path, .jp.on > rect { stroke: var(--accent); stroke-width: 2.2; }
+.jp.on.jp-plate > path, .jp.on.jp-plate > rect, .jp.on.jp-steel > path, .jp.on.jp-steel > rect { fill: color-mix(in srgb, var(--accent-soft) 60%, var(--accent) 40%); }
+.joint-scheme .pick:hover { filter: brightness(0.92); }
+.jdim text { fill: var(--muted); }
+.jutil { margin-left: 8px; font-size: 11.5px; padding: 1px 6px; border-radius: 9px; font-weight: 600; }
+.jutil.ok { background: var(--ok-soft); color: var(--ok); } .jutil.warn { background: var(--warn-soft); color: var(--warn); } .jutil.fail { background: var(--fail-soft); color: var(--fail); }
+.jlink { border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 10px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; }
+.jlink .hint { margin: 0; }
+.asm-jbtn { margin-top: 6px; }

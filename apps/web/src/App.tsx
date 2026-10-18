@@ -11,6 +11,7 @@ import { CollectorState, initialCollector } from "./LoadCollector";
 import { initialNode, NodeModule, NodeState } from "./NodeModule";
 import { AssemblyModule, AsmState, initialAsm } from "./AssemblyModule";
 import { asmTemplate, AsmTemplate } from "@structcalc/core";
+import { baseToAsm } from "./asmJoint";
 
 interface AppState {
   lang: Lang; code: CodeId; screen: Screen;
@@ -105,9 +106,15 @@ export function App() {
       )}
       {s.screen === "column" && <ColumnModule code={s.code} s={column} set={(p) => set({ column: { ...s.column, ...p } })} t={t} />}
       {s.screen === "connection" && <ConnectionsModule code={s.code} s={s.conn} set={(p) => set({ conn: { ...s.conn, ...p } })} t={t} />}
-      {s.screen === "node" && <NodeModule code={s.code} s={{ ...s.node, family: s.node.family === "MANUAL" ? "MANUAL" : okFam(s.node.family, "HEB"), pSteel: okSteel(s.node.pSteel), plSteel: okSteel(s.node.plSteel) }} set={(p) => set({ node: { ...s.node, ...p } })} t={t} />}
+      {s.screen === "node" && <NodeModule code={s.code} s={{ ...s.node, family: s.node.family === "MANUAL" ? "MANUAL" : okFam(s.node.family, "HEB"), pSteel: okSteel(s.node.pSteel), plSteel: okSteel(s.node.plSteel) }} set={(p) => set({ node: { ...s.node, ...p } })} t={t}
+        onReturn={s.asm.asm ? (jr) => { set({ screen: "assembly", asm: { ...s.asm, jres: { ...(s.asm.jres ?? {}), [`${jr.member}|${jr.end}`]: jr } } }); window.scrollTo(0, 0); } : undefined}
+        onReturnBase={s.asm.asm ? (ns) => {
+          const a = s.asm.asm!, id = ns.asmLink?.node;
+          set({ screen: "assembly", node: { ...s.node, asmLink: undefined }, asm: { ...s.asm, sel: id ? { kind: "node", id } : s.asm.sel, asm: { ...a, nodes: a.nodes.map((n) => (n.id === id ? baseToAsm(ns, n) : n)) } } });
+          window.scrollTo(0, 0);
+        } : undefined} />}
       {s.screen === "generator" && <GeneratorModule code={s.code} s={s.gen} set={(p) => set({ gen: { ...s.gen, ...p } })} lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
-      {s.screen === "assembly" && <AssemblyModule code={s.code} s={s.asm} set={(p) => set({ asm: { ...s.asm, ...p } })} t={t} />}
+      {s.screen === "assembly" && <AssemblyModule code={s.code} s={s.asm} set={(p) => set({ asm: { ...s.asm, ...p } })} t={t} openNode={(p) => { set({ screen: "node", node: { ...s.node, ...p } }); window.scrollTo(0, 0); }} />}
       {s.screen === "library" && <LibraryModule lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
       {s.screen === "section" && <SectionModule code={s.code} s={sec} set={(p) => set({ sec: { ...s.sec, ...p } })} lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
     </div>
