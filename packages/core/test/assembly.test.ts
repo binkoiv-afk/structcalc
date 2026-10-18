@@ -31,4 +31,31 @@ describe("збірка", () => {
     expect(res.supports.length).toBe(4);
     expect(res.supports.every((s) => s.result && Number.isFinite(s.result.maxUtil))).toBe(true);
   });
+  it("навіс з покрівлею-пластиною: та сама сума реакцій, стрижні поділені й зібрані назад", () => {
+    const a = asmTemplate("canopy", "DBN");
+    const lp = analyzeAssembly(a);
+    const b = { ...a, panels: a.panels.map((p) => ({ ...p, kind: "plate" as const, t: 4 })), cases: a.cases.map((c) => ({ ...c, selfWeight: false })) };
+    const la = { ...a, cases: a.cases.map((c) => ({ ...c, selfWeight: false })) };
+    const ra = analyzeAssembly(la), rb = analyzeAssembly(b);
+    const sumZ = (r: typeof ra, k: number) => Object.values(r.uls[k].reactions).reduce((s, v) => s + v[2], 0);
+    for (let k = 0; k < ra.uls.length; k++) expect(sumZ(rb, k) / sumZ(ra, k)).toBeCloseTo(1, 3);
+    // стрижень по краю пластини знову один, з усіма станціями
+    expect(Object.keys(rb.uls[0].members).sort()).toEqual(Object.keys(lp.uls[0].members).sort());
+    expect(rb.uls[0].members["b1"].x.at(-1)).toBeCloseTo(6000, 3);
+    expect(rb.plates.length).toBe(1);
+    expect(rb.plates[0].smax).toBeGreaterThan(0);
+  });
+  it("площадка: лист-оболонка перевіряється, рівновага з власною вагою", () => {
+    const a = asmTemplate("platform", "EN");
+    const r = analyzeAssembly(a);
+    expect(r.plates.length).toBe(2);
+    expect(r.plates.every((p) => p.util > 0.05 && p.util < 1)).toBe(true);
+    // загруження Q окремо: 3 кПа × 6 м²
+    const only = analyzeAssembly({ ...a, cases: a.cases.map((c) => ({ ...c, selfWeight: false })), panelLoads: a.panelLoads.filter((l) => l.case === "L") });
+    const k = only.combos.filter((c) => c.kind !== "SLS").findIndex((c) => c.factors.L > 0 && !c.factors.G && !c.factors.E);
+    const kk = k >= 0 ? k : only.combos.filter((c) => c.kind !== "SLS").findIndex((c) => c.factors.L > 0);
+    const c = only.combos.filter((x) => x.kind !== "SLS")[kk];
+    const Rz = Object.values(only.uls[kk].reactions).reduce((s, v) => s + v[2], 0);
+    expect(Rz / (c.factors.L * 3e-3 * 6e6)).toBeCloseTo(1, 3);
+  });
 });

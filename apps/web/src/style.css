@@ -500,3 +500,7 @@ main.library .inputs { display: flex; flex-direction: column; gap: 14px; }
 .ld-row label.mini { flex-direction: row; align-items: center; }
 .ld-row label.mini span { flex: none; }
 @media (max-width: 600px) { .asm-table { display: block; overflow-x: auto; max-width: 100%; } .asm-table td, .asm-table th { padding: 4px 6px; font-size: 12.5px; } }
+.av-pe { fill: var(--soft); fill-opacity: 0.6; stroke: var(--muted); stroke-width: 0.4; stroke-opacity: 0.55; cursor: pointer; }
+.av-pe.ok { fill: var(--ok); } .av-pe.warn { fill: var(--warn); } .av-pe.fail { fill: var(--fail); }
+.av-pe.on { stroke: var(--accent); stroke-width: 0.9; stroke-opacity: 1; }
+.av-panel.plate { fill: var(--soft); stroke: var(--muted); stroke-dasharray: none; stroke-width: 1.2; }

@@ -5,8 +5,8 @@ import type { CodeId } from "../codes/types";
 import type { Assembly, AsmMember, AsmNode, EndConn } from "./assembly";
 import type { BasePlateInput } from "../joints/basePlate";
 
-export type AsmTemplate = "canopy" | "truss" | "portal" | "bracket";
-export const ASM_TEMPLATES: AsmTemplate[] = ["canopy", "truss", "portal", "bracket"];
+export type AsmTemplate = "canopy" | "truss" | "portal" | "bracket" | "platform";
+export const ASM_TEMPLATES: AsmTemplate[] = ["canopy", "truss", "portal", "bracket", "platform"];
 
 const weld = (kf = 5, behaviour: EndConn["behaviour"] = "rigid"): EndConn => ({ behaviour, kind: "weld", kf });
 const bolts = (d = 16, rows = 1, cols = 2): EndConn => ({ behaviour: "pin", kind: "bolts", d, rows, cols, px: 3 * d, py: 3 * d, tp: 8, plane: "web", edge: 2 * d });
@@ -96,6 +96,40 @@ export function asmTemplate(k: AsmTemplate, code: CodeId): Assembly {
         { id: "G", label: "G", cat: "G", gf: gf.G, selfWeight: true, members: [{ member: "Р1", kind: "dist", dir: "gz", w1: -3 }] },
         { id: "S", label: "S", cat: "Q", gf: gf.S, members: [{ member: "Р1", kind: "dist", dir: "gz", w1: -7 }] },
         { id: "W", label: "W", cat: "Q", gf: gf.W, members: [{ member: "К1", kind: "dist", dir: "gx", w1: 2.4 }, { member: "К2", kind: "dist", dir: "gx", w1: 1.5 }] },
+      ],
+    };
+  }
+  if (k === "platform") {
+    // площадка 3 × 2 м: рифлений лист t = 8 мм — пластина-оболонка, що працює разом з балками; стійки на базах
+    const L = 3000, B = 2000, H = 1500;
+    const kw = code === "EN" ? 5 : 4;
+    const bp = () => ({ ...basePlateDefaults(code), weld: { ...basePlateDefaults(code).weld, kf: kw }, plate: { ...basePlateDefaults(code).plate, L: 250, B: 250, t: 16 }, anchors: { ...basePlateDefaults(code).anchors, d: 16, sx: 170, sy: 170, hef: 250 } });
+    const nodes: AsmNode[] = [
+      { id: "1", x: 0, y: 0, z: 0, support: "base", base: bp() }, { id: "2", x: L, y: 0, z: 0, support: "base", base: bp() },
+      { id: "3", x: L, y: B, z: 0, support: "base", base: bp() }, { id: "4", x: 0, y: B, z: 0, support: "base", base: bp() },
+      { id: "5", x: 0, y: 0, z: H }, { id: "6", x: L, y: 0, z: H }, { id: "7", x: L, y: B, z: H }, { id: "8", x: 0, y: B, z: H },
+      { id: "9", x: L / 2, y: 0, z: H }, { id: "10", x: L / 2, y: B, z: H },
+    ];
+    const col = (id: string, a: string, b: string) => m(id, a, b, "RHS_COLD", "100×100×4", weld(kw), weld(kw));
+    const beam = (id: string, a: string, b: string, size: string, beta = 0) => m(id, a, b, "RHS_COLD", size, weld(kw), weld(kw), { beta });
+    return {
+      code, nodes,
+      members: [col("c1", "1", "5"), col("c2", "2", "6"), col("c3", "3", "7"), col("c4", "4", "8"),
+        beam("b1", "5", "9", "120×80×4"), beam("b2", "9", "6", "120×80×4"), beam("b3", "7", "10", "120×80×4"), beam("b4", "10", "8", "120×80×4"),
+        beam("b5", "6", "7", "120×80×4"), beam("b6", "8", "5", "120×80×4"), beam("b7", "9", "10", "100×100×4")],
+      panels: [
+        { id: "П1", nodes: ["5", "9", "10", "8"], mode: "two", kind: "plate", t: 8, steel: st, mass: 0 },
+        { id: "П2", nodes: ["9", "6", "7", "10"], mode: "two", kind: "plate", t: 8, steel: st, mass: 0 },
+      ],
+      panelLoads: [
+        { panel: "П1", case: "L", q: -3e-3, dir: "gz" }, { panel: "П2", case: "L", q: -3e-3, dir: "gz" },
+        // зосереджене навантаження від обладнання на частині листа 0.5 × 0.5 м
+        { panel: "П2", case: "E", q: -8e-3, dir: "gz", region: { u0: 0.33, u1: 0.67, v0: 0.375, v1: 0.625 } },
+      ],
+      cases: [
+        { id: "G", label: "G", cat: "G", gf: gf.G, selfWeight: true },
+        { id: "L", label: "Q", cat: "Q", gf: code === "DBN" ? 1.2 : 1.5 },
+        { id: "E", label: "E", cat: "Q", gf: code === "DBN" ? 1.2 : 1.5 },
       ],
     };
   }

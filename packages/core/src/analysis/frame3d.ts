@@ -5,6 +5,8 @@
 // y = z × x; кут β повертає y, z навколо x. I_y — момент інерції відносно локальної y (згин у площині xz, сильна вісь).
 // Внутрішні зусилля в перерізі: N > 0 — розтяг; M_y > 0 — розтягнуті волокна +z; M_z > 0 — розтягнуті волокна −y.
 
+import { shellForces, ShellElement, ShellForces, ShellLoad, shellLoadVector, shellPrepare, ShellPrepared } from "./shell";
+
 export type Vec3 = [number, number, number];
 
 export interface FrameNode {
@@ -45,11 +47,13 @@ export interface LoadCase {
   /** вузлові сили [Fx, Fy, Fz, Mx, My, Mz], Н і Н·мм */
   nodal?: { node: string; F: number[] }[];
   members?: MemberLoad[];
-  /** власна вага стрижнів з коефіцієнтом (1 — повна) */
+  /** тиск на елементи оболонки */
+  shellLoads?: ShellLoad[];
+  /** власна вага стрижнів і оболонок з коефіцієнтом (1 — повна) */
   selfWeight?: number;
 }
 
-export interface FrameModel { nodes: FrameNode[]; members: FrameMember[] }
+export interface FrameModel { nodes: FrameNode[]; members: FrameMember[]; shells?: ShellElement[] }
 
 export interface MemberForces {
   /** станції вздовж стрижня, мм */
@@ -67,6 +71,7 @@ export interface FrameResult {
   /** реакції в закріплених вузлах (глобальні), Н і Н·мм */
   reactions: Record<string, number[]>;
   members: Record<string, MemberForces>;
+  shells?: Record<string, ShellForces>;
 }
 
 export const G_ACC = 9.81e-3; // Н/кг на мм… 1 кг·9.81 м/с² = 9.81 Н; густина в кг/мм³ дає Н/мм³
@@ -244,60 +249,127 @@ export function solveFrame(model: FrameModel, cases: LoadCase[], stations = 41):
     const { k } = condense(kFull, new Array(12).fill(0), rel);
     prep.set(m.id, { L, R, k, rel, kFull });
   }
-  // глобальна матриця
-  const K = Array.from({ length: nd }, () => new Float64Array(nd));
+  const shells = model.shells ?? [];
+  const sprep = new Map<string, ShellPrepared>();
+  for (const e of shells) {
+    if (e.nodes.some((n) => !idx.has(n))) throw new Error(`shell ${e.id}: unknown node`);
+    sprep.set(e.id, shellPrepare(e, e.nodes.map(pos)));
+  }
   const T12 = (R: [Vec3, Vec3, Vec3]) => {
     const T = Array.from({ length: 12 }, () => new Array(12).fill(0));
     for (let b = 0; b < 4; b++) for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) T[b * 3 + r][b * 3 + c] = R[r][c];
     return T;
   };
-  const dofsOf = (m: FrameMember) => { const a = idx.get(m.i)! * 6, b = idx.get(m.j)! * 6; return [0, 1, 2, 3, 4, 5].map((q) => a + q).concat([0, 1, 2, 3, 4, 5].map((q) => b + q)); };
+  const dofsOfNodes = (ids: string[]) => ids.flatMap((id) => { const a = idx.get(id)! * 6; return [a, a + 1, a + 2, a + 3, a + 4, a + 5]; });
+  const dofsOf = (m: FrameMember) => dofsOfNodes([m.i, m.j]);
+  const elems: { d: number[]; K: number[][] }[] = [];
   for (const m of model.members) {
-    const P = prep.get(m.id)!, T = T12(P.R), d = dofsOf(m);
+    const P = prep.get(m.id)!, T = T12(P.R);
     // Kg = Tᵀ k T
     const kT = P.k.map((row) => T[0].map((_, c) => row.reduce((s, v, q) => s + v * T[q][c], 0)));
-    for (let r = 0; r < 12; r++) for (let c = 0; c < 12; c++) {
-      let s = 0;
-      for (let q = 0; q < 12; q++) s += T[q][r] * kT[q][c];
-      K[d[r]][d[c]] += s;
-    }
+    const Kg = Array.from({ length: 12 }, (_, r) => Array.from({ length: 12 }, (_, c) => { let s = 0; for (let q = 0; q < 12; q++) s += T[q][r] * kT[q][c]; return s; }));
+    elems.push({ d: dofsOf(m), K: Kg });
   }
+  for (const e of shells) elems.push({ d: dofsOfNodes(e.nodes), K: sprep.get(e.id)!.K });
   // закріплення і пружини
   const fixed = new Array(nd).fill(false);
+  const spring = new Float64Array(nd);
   model.nodes.forEach((n, k) => DOFS.forEach((dn, q) => {
     const v = n.fix?.[dn];
     if (v === true) fixed[k * 6 + q] = true;
-    else if (typeof v === "number" && v > 0) K[k * 6 + q][k * 6 + q] += v;
+    else if (typeof v === "number" && v > 0) spring[k * 6 + q] = v;
   }));
-  // повороти вузлів, де всі стрижні шарнірні, — крихітна пружина, щоб матриця не була виродженою
+  const diag0 = new Float64Array(nd);
+  for (const el of elems) el.d.forEach((g, r) => (diag0[g] += el.K[r][r]));
+  for (let q = 0; q < nd; q++) diag0[q] += spring[q];
   let kmax = 0;
-  for (let q = 0; q < nd; q++) kmax = Math.max(kmax, K[q][q]);
-  const diag0 = Array.from({ length: nd }, (_, q) => K[q][q]);
-  for (let k = 0; k < model.nodes.length; k++) for (let q = 3; q < 6; q++) K[k * 6 + q][k * 6 + q] += kmax * 1e-12 + 1e-6;
-  const free = [...Array(nd).keys()].filter((q) => !fixed[q]);
+  for (let q = 0; q < nd; q++) kmax = Math.max(kmax, diag0[q]);
+  // нумерація рівнянь: зворотний Катхілл–Маккі за вузлами — вузька стрічка для профільного розкладу
+  const nn = model.nodes.length;
+  const adj: Set<number>[] = Array.from({ length: nn }, () => new Set());
+  for (const el of elems) {
+    const ns = [...new Set(el.d.map((g) => Math.floor(g / 6)))];
+    for (const a of ns) for (const b of ns) if (a !== b) adj[a].add(b);
+  }
+  const order: number[] = [], seen = new Array(nn).fill(false);
+  const byDeg = [...Array(nn).keys()].sort((a, b) => adj[a].size - adj[b].size);
+  for (const s0 of byDeg) {
+    if (seen[s0]) continue;
+    seen[s0] = true;
+    const queue = [s0];
+    for (let h = 0; h < queue.length; h++) {
+      const v = queue[h];
+      order.push(v);
+      for (const w of [...adj[v]].sort((a, b) => adj[a].size - adj[b].size)) if (!seen[w]) { seen[w] = true; queue.push(w); }
+    }
+  }
+  order.reverse();
+  const eq = new Int32Array(nd).fill(-1), free: number[] = [];
+  for (const k of order) for (let q = 0; q < 6; q++) if (!fixed[k * 6 + q]) { eq[k * 6 + q] = free.length; free.push(k * 6 + q); }
   const nf = free.length;
-  // Холецький для вільних ступенів
-  const Lm = Array.from({ length: nf }, () => new Float64Array(nf));
+  // профіль: перший ненульовий стовпець кожного рядка
+  const first = new Int32Array(nf);
+  for (let r = 0; r < nf; r++) first[r] = r;
+  for (const el of elems) {
+    let mn = Infinity;
+    for (const g of el.d) if (eq[g] >= 0 && eq[g] < mn) mn = eq[g];
+    for (const g of el.d) if (eq[g] >= 0 && first[eq[g]] > mn) first[eq[g]] = mn;
+  }
+  const ptr = new Int32Array(nf + 1);
+  for (let r = 0; r < nf; r++) ptr[r + 1] = ptr[r] + (r - first[r] + 1);
+  const A = new Float64Array(ptr[nf]);
+  const at = (r: number, c: number) => ptr[r] + c - first[r];
+  for (const el of elems) {
+    const n = el.d.length;
+    for (let i = 0; i < n; i++) {
+      const r = eq[el.d[i]];
+      if (r < 0) continue;
+      for (let j = 0; j < n; j++) {
+        const c = eq[el.d[j]];
+        if (c < 0 || c > r) continue;
+        A[at(r, c)] += el.K[i][j];
+      }
+    }
+  }
   for (let r = 0; r < nf; r++) {
-    for (let c = 0; c <= r; c++) {
-      let s = K[free[r]][free[c]];
-      for (let q = 0; q < c; q++) s -= Lm[r][q] * Lm[c][q];
-      if (r === c) {
+    const g = free[r];
+    A[at(r, r)] += spring[g];
+    // повороти вузлів, де всі стрижні шарнірні, — крихітна пружина, щоб матриця не була виродженою
+    if (g % 6 >= 3) A[at(r, r)] += kmax * 1e-12 + 1e-6;
+  }
+  // профільний розклад Холецького (на місці)
+  for (let r = 0; r < nf; r++) {
+    const fr = first[r], pr = ptr[r] - fr;
+    for (let c = fr; c <= r; c++) {
+      const fc = first[c], pc = ptr[c] - fc;
+      let s = A[pr + c];
+      for (let q = Math.max(fr, fc); q < c; q++) s -= A[pr + q] * A[pc + q];
+      if (c === r) {
         const ref = Math.max(diag0[free[r]], kmax * 1e-12);
         if (s <= ref * 1e-9 && free[r] % 6 < 3) {
           const n = model.nodes[Math.floor(free[r] / 6)];
           throw new Error(`mechanism:${n.id}:${DOFS[free[r] % 6]}`);
         }
-        Lm[r][r] = Math.sqrt(Math.max(s, 1e-30));
-      } else Lm[r][c] = s / Lm[c][c];
+        A[pr + r] = Math.sqrt(Math.max(s, 1e-30));
+      } else A[pr + c] = s / A[pc + c];
     }
   }
   const solveVec = (F: Float64Array) => {
     const y = new Float64Array(nf);
-    for (let r = 0; r < nf; r++) { let s = F[free[r]]; for (let q = 0; q < r; q++) s -= Lm[r][q] * y[q]; y[r] = s / Lm[r][r]; }
-    const x = new Float64Array(nf);
-    for (let r = nf - 1; r >= 0; r--) { let s = y[r]; for (let q = r + 1; q < nf; q++) s -= Lm[q][r] * x[q]; x[r] = s / Lm[r][r]; }
-    return x;
+    for (let r = 0; r < nf; r++) {
+      const fr = first[r], pr = ptr[r] - fr;
+      let s = F[free[r]];
+      for (let q = fr; q < r; q++) s -= A[pr + q] * y[q];
+      y[r] = s / A[pr + r];
+    }
+    // зворотний хід за стовпцями профілю
+    for (let r = nf - 1; r >= 0; r--) {
+      const fr = first[r], pr = ptr[r] - fr;
+      y[r] /= A[pr + r];
+      const xr = y[r];
+      for (let q = fr; q < r; q++) y[q] -= A[pr + q] * xr;
+    }
+    return y;
   };
   // перевірка на механізм: одинична сила в кожному вільному переміщенні — механізм дає «нескінченні» переміщення
   {
@@ -325,6 +397,14 @@ export function solveFrame(model: FrameModel, cases: LoadCase[], stations = 41):
         const g = toGlobal(P.R, [f[b * 3], f[b * 3 + 1], f[b * 3 + 2]]);
         for (let r = 0; r < 3; r++) F[d[b * 3 + r]] += g[r];
       }
+    }
+    const sLoad = new Map<string, number[]>();
+    for (const e of shells) {
+      const ls = (lc.shellLoads ?? []).filter((l) => l.shell === e.id);
+      if (!ls.length && !(lc.selfWeight && e.rho)) continue;
+      const f = shellLoadVector(e, sprep.get(e.id)!, ls, lc.selfWeight ?? 0);
+      sLoad.set(e.id, f);
+      dofsOfNodes(e.nodes).forEach((g, q) => (F[g] += f[q]));
     }
     const x = solveVec(F);
     const U = new Float64Array(nd);
@@ -404,6 +484,19 @@ export function solveFrame(model: FrameModel, cases: LoadCase[], stations = 41):
       // сила N у вузлі i: зусилля на стрижень fe[0] — стискає, якщо > 0
       res.members[m.id] = mf;
     }
+    if (shells.length) {
+      res.shells = {};
+      for (const e of shells) {
+        const d = dofsOfNodes(e.nodes), ug = d.map((g) => U[g]);
+        const sf = shellForces(e, sprep.get(e.id)!, ug, sLoad.get(e.id) ?? new Array(24).fill(0));
+        res.shells[e.id] = sf;
+        e.nodes.forEach((nid, k) => {
+          const s = nodeSum.get(nid) ?? [0, 0, 0, 0, 0, 0];
+          for (let q = 0; q < 6; q++) s[q] += sf.nodal[k * 6 + q];
+          nodeSum.set(nid, s);
+        });
+      }
+    }
     model.nodes.forEach((n) => {
       if (!n.fix || !Object.values(n.fix).some((v) => v)) return;
       const s = nodeSum.get(n.id) ?? [0, 0, 0, 0, 0, 0];
@@ -432,24 +525,53 @@ export function combineFrame(res: Record<string, FrameResult>, factors: Record<s
   const out: FrameResult = { u: {}, reactions: {}, members: {} };
   for (const n of Object.keys(first.u)) out.u[n] = lin((r) => r.u[n]);
   for (const n of Object.keys(first.reactions)) out.reactions[n] = lin((r) => r.reactions[n]);
+  if (first.shells) {
+    out.shells = {};
+    for (const e of Object.keys(first.shells)) {
+      const g = (k: string) => res[k].shells![e];
+      const lin1 = (pick: (r: ShellForces) => number[]) => { const b = pick(first.shells![e]).map(() => 0); for (const k of ids) pick(g(k)).forEach((v, q) => (b[q] += factors[k] * v)); return b; };
+      const c = lin1((r) => r.c), nodal = lin1((r) => r.nodal);
+      const gp = [0, 1, 2, 3].map((q) => lin1((r) => r.gp[q])), corner = [0, 1, 2, 3].map((q) => lin1((r) => r.corner[q]));
+      // svm залежить від товщини і нелінійний — рахується окремо (shellVonMises)
+      out.shells[e] = { c, gp, corner, nodal, svm: NaN };
+    }
+  }
   for (const m of Object.keys(first.members)) {
     const f0 = first.members[m];
     // станції можуть відрізнятися між загруженнями (точкові сили) — зводимо до спільних станцій інтерполяцією
     const X = [...new Set(ids.flatMap((k) => res[k].members[m].x).concat(f0.x))].sort((a, b) => a - b);
-    const at = (mf: MemberForces, key: "N" | "Vy" | "Vz" | "T" | "My" | "Mz", x: number) => interp(mf.x, mf[key], x);
     const keys = ["N", "Vy", "Vz", "T", "My", "Mz"] as const;
     const mf: MemberForces = { x: X, N: [], Vy: [], Vz: [], T: [], My: [], Mz: [], endI: lin((r) => r.members[m].endI), endJ: lin((r) => r.members[m].endJ), disp: [] };
-    for (const key of keys) mf[key] = X.map((x) => ids.reduce((s, k) => s + factors[k] * at(res[k].members[m], key, x), 0));
-    mf.disp = X.map((x) => [0, 1, 2].map((c) => ids.reduce((s, k) => {
-      const r = res[k].members[m];
-      return s + factors[k] * interp(r.x, r.disp.map((d) => d[c]), x);
-    }, 0)) as Vec3);
+    for (const key of keys) mf[key] = X.map(() => 0);
+    const disp = X.map(() => [0, 0, 0]);
+    for (const k of ids) {
+      const r = res[k].members[m], fk = factors[k];
+      const same = r.x.length === X.length && r.x.every((v, q) => v === X[q]);
+      const on = (ys: number[]) => (same ? ys : interpSorted(r.x, ys, X));
+      for (const key of keys) { const v = on(r[key]); for (let q = 0; q < X.length; q++) mf[key][q] += fk * v[q]; }
+      for (let c = 0; c < 3; c++) { const v = on(r.disp.map((d) => d[c])); for (let q = 0; q < X.length; q++) disp[q][c] += fk * v[q]; }
+    }
+    mf.disp = disp as Vec3[];
     out.members[m] = mf;
   }
   return out;
 }
 
-function interp(xs: number[], ys: number[], x: number): number {
+/** Інтерполяція на зростаючу множину точок X (один прохід) */
+function interpSorted(xs: number[], ys: number[], X: number[]): number[] {
+  const out: number[] = [];
+  let i = 1;
+  for (const x of X) {
+    if (x <= xs[0]) { out.push(ys[0]); continue; }
+    while (i < xs.length - 1 && xs[i] < x) i++;
+    if (x >= xs[xs.length - 1]) { out.push(ys[ys.length - 1]); continue; }
+    const d = xs[i] - xs[i - 1];
+    out.push(d < 1e-9 ? ys[i] : ys[i - 1] + ((ys[i] - ys[i - 1]) * (x - xs[i - 1])) / d);
+  }
+  return out;
+}
+
+export function interp(xs: number[], ys: number[], x: number): number {
   if (x <= xs[0]) return ys[0];
   for (let i = 1; i < xs.length; i++) if (x <= xs[i]) {
     const d = xs[i] - xs[i - 1];

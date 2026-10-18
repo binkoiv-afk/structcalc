@@ -2,6 +2,13 @@
 type Dict = Record<string, string>;
 
 const uk: Dict = {
+  at_platform: "Площадка з листом", at_platform_d: "Лист t = 8 мм як пластина-оболонка на балках, навантаження на весь лист і на частину",
+  asm_kLoad: "Вантажна площа", asm_kPlate: "Пластина (оболонка)",
+  asm_kLoadHint: "Сама не рахується: навантаження з неї передається на стрижні по краях.",
+  asm_kPlateHint: "Лист рахується методом скінченних елементів як оболонка (згин + робота в площині) разом зі стрижнями: стрижні по краях і всередині ділять сітку і працюють з листом спільно.",
+  asm_mesh: "Елементів по стороні", asm_auto: "авто", asm_plates: "Пластини", asm_k_plate: "Пластина",
+  asm_plateRes: "σ_ef — еквівалентні напруження на верхній і нижній поверхні листа в точках інтегрування (пружна стадія, у запас). Біля точкових опор і кутів напруження локально зростають — дрібніша сітка показує піки точніше.",
+  chk_plateVonMises: "Міцність листа (σ_ef)",
   grp_asm: "Збірка конструкції", grp_asm_h: "Збираєте систему з профілів, стиків і панелей, задаєте навантаження на будь-яку частину — програма передає зусилля через стики на опори і перевіряє все разом.",
   mod_assembly: "Збірка конструкції", mod_assembly_d: "Ферма, навіс, рама, кронштейн: профілі, стики, панелі, опори → МСЕ і перевірки",
   asm_pick: "Що збираємо?", asm_pick_sub: "Почніть із шаблону або з порожньої схеми. Усе змінюється: вузли, профілі, стики, панелі, навантаження.",
@@ -51,13 +58,20 @@ const uk: Dict = {
   asm_jointsHint: "Зусилля в кожному стику беруться з кінця стрижня для кожного сполучення: N, V, M, T передаються на зварні шви, болти, заклепки чи саморізи.",
   asm_sls: "нормативне", asm_repTitle: "Розрахунок конструкції",
   asm_method: "Методика",
-  asm_methodText: "Просторова стрижнева схема розраховується методом скінченних елементів (6 ступенів вільності у вузлі; шарніри — звільненням моментів на кінцях). Навантаження панелей розподіляються на стрижні по краях. Для кожного сполучення визначаються зусилля в стрижнях, стиках і реакції опор; стрижні перевіряються на міцність і стійкість, стики — за зусиллями на кінцях стрижнів, бази — за реакціями.",
+  asm_methodText: "Просторова стрижнева схема розраховується методом скінченних елементів (6 ступенів вільності у вузлі; шарніри — звільненням моментів на кінцях). Навантаження вантажних панелей розподіляються на стрижні по краях; пластини розраховуються як оболонки (чотирикутні елементи МІТЦ4 з мембраною QM6) спільно зі стрижнями. Для кожного сполучення визначаються зусилля в стрижнях, стиках і реакції опор; стрижні перевіряються на міцність і стійкість, стики — за зусиллями на кінцях стрижнів, бази — за реакціями.",
   asm_err_mech: "Схема геометрично змінна: вузол {n} вільно зміщується по {d}. Додайте стрижень, опору або в'язь.",
   asm_err_zero: "Стрижень {m} має нульову довжину.", asm_err_section: "Немає перерізу для стрижня {m}.",
   chk_frameBiaxial: "Міцність при N + M_y + M_z", chk_frameTension: "Міцність при розтягу", chk_frameShearY: "Зріз полиць (V_y)",
 };
 
 const ru: Dict = {
+  at_platform: "Площадка с листом", at_platform_d: "Лист t = 8 мм как пластина-оболочка на балках, нагрузка на весь лист и на часть",
+  asm_kLoad: "Грузовая площадь", asm_kPlate: "Пластина (оболочка)",
+  asm_kLoadHint: "Сама не считается: нагрузка с неё передаётся на стержни по краям.",
+  asm_kPlateHint: "Лист считается методом конечных элементов как оболочка (изгиб + работа в плоскости) вместе со стержнями: стержни по краям и внутри делят сетку и работают с листом совместно.",
+  asm_mesh: "Элементов по стороне", asm_auto: "авто", asm_plates: "Пластины", asm_k_plate: "Пластина",
+  asm_plateRes: "σ_ef — эквивалентные напряжения на верхней и нижней поверхности листа в точках интегрирования (упругая стадия, в запас). У точечных опор и углов напряжения локально растут — более мелкая сетка показывает пики точнее.",
+  chk_plateVonMises: "Прочность листа (σ_ef)",
   grp_asm: "Сборка конструкции", grp_asm_h: "Собираете систему из профилей, стыков и панелей, задаёте нагрузки на любую часть — программа передаёт усилия через стыки на опоры и проверяет всё вместе.",
   mod_assembly: "Сборка конструкции", mod_assembly_d: "Ферма, навес, рама, кронштейн: профили, стыки, панели, опоры → МКЭ и проверки",
   asm_pick: "Что собираем?", asm_pick_sub: "Начните с шаблона или с пустой схемы. Всё меняется: узлы, профили, стыки, панели, нагрузки.",
@@ -107,13 +121,20 @@ const ru: Dict = {
   asm_jointsHint: "Усилия в каждом стыке берутся с конца стержня для каждого сочетания: N, V, M, T передаются на сварные швы, болты, заклёпки или саморезы.",
   asm_sls: "нормативное", asm_repTitle: "Расчёт конструкции",
   asm_method: "Методика",
-  asm_methodText: "Пространственная стержневая схема рассчитывается методом конечных элементов (6 степеней свободы в узле; шарниры — освобождением моментов на концах). Нагрузки панелей распределяются на стержни по краям. Для каждого сочетания определяются усилия в стержнях, стыках и реакции опор; стержни проверяются на прочность и устойчивость, стыки — по усилиям на концах стержней, базы — по реакциям.",
+  asm_methodText: "Пространственная стержневая схема рассчитывается методом конечных элементов (6 степеней свободы в узле; шарниры — освобождением моментов на концах). Нагрузки грузовых панелей распределяются на стержни по краям; пластины рассчитываются как оболочки (четырёхугольные элементы MITC4 с мембраной QM6) совместно со стержнями. Для каждого сочетания определяются усилия в стержнях, стыках и реакции опор; стержни проверяются на прочность и устойчивость, стыки — по усилиям на концах стержней, базы — по реакциям.",
   asm_err_mech: "Схема геометрически изменяема: узел {n} свободно смещается по {d}. Добавьте стержень, опору или связь.",
   asm_err_zero: "Стержень {m} имеет нулевую длину.", asm_err_section: "Нет сечения для стержня {m}.",
   chk_frameBiaxial: "Прочность при N + M_y + M_z", chk_frameTension: "Прочность при растяжении", chk_frameShearY: "Срез полок (V_y)",
 };
 
 const en: Dict = {
+  at_platform: "Platform with plate", at_platform_d: "8 mm plate as a shell on beams, load on the whole plate and on a part of it",
+  asm_kLoad: "Load area", asm_kPlate: "Plate (shell)",
+  asm_kLoadHint: "Not analysed itself: its load goes to the members along its edges.",
+  asm_kPlateHint: "The plate is analysed by finite elements as a shell (bending + membrane) together with the members: members along its edges and inside split the mesh and act compositely with it.",
+  asm_mesh: "Elements per side", asm_auto: "auto", asm_plates: "Plates", asm_k_plate: "Plate",
+  asm_plateRes: "σ_ef is the equivalent stress on the top and bottom surface at the integration points (elastic, conservative). Stresses rise locally near point supports and corners; a finer mesh shows the peaks more accurately.",
+  chk_plateVonMises: "Plate resistance (σ_ef)",
   grp_asm: "Structure assembly", grp_asm_h: "Build a system from profiles, joints and panels, load any part of it, and the program passes the forces through the joints to the supports and checks everything together.",
   mod_assembly: "Structure assembly", mod_assembly_d: "Truss, canopy, frame, bracket: profiles, joints, panels, supports → FEM and checks",
   asm_pick: "What are we building?", asm_pick_sub: "Start from a template or an empty model. Everything is editable: nodes, profiles, joints, panels, loads.",
@@ -163,7 +184,7 @@ const en: Dict = {
   asm_jointsHint: "Each joint takes the member end forces of every combination: N, V, M, T are carried by welds, bolts, rivets or screws.",
   asm_sls: "characteristic", asm_repTitle: "Structural analysis",
   asm_method: "Method",
-  asm_methodText: "The 3D frame model is solved by the finite element method (6 DOF per node; pins by moment releases at member ends). Panel loads are distributed to the members along their edges. For each combination member forces, joint forces and support reactions are found; members are checked for resistance and stability, joints for the member end forces, bases for the reactions.",
+  asm_methodText: "The 3D frame model is solved by the finite element method (6 DOF per node; pins by moment releases at member ends). Load-panel loads are distributed to the members along their edges; plates are analysed as shells (MITC4 quadrilaterals with QM6 membrane) together with the members. For each combination member forces, joint forces and support reactions are found; members are checked for resistance and stability, joints for the member end forces, bases for the reactions.",
   asm_err_mech: "The model is a mechanism: node {n} moves freely in {d}. Add a member, support or restraint.",
   asm_err_zero: "Member {m} has zero length.", asm_err_section: "No section for member {m}.",
   chk_frameBiaxial: "Resistance to N + M_y + M_z", chk_frameTension: "Tension resistance", chk_frameShearY: "Flange shear (V_y)",

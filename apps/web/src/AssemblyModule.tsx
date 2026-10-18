@@ -253,12 +253,23 @@ export function AssemblyModule({ code, s, set, t }: { code: CodeId; s: AsmState;
       <div className="part open"><div className="part-body">
         <h3 className="card-h">{t("asm_panel")} {p.id} · {p.nodes.join("–")}</h3>
         <div className="seg wide" role="group">
+          <button id="pk-load" className={p.kind !== "plate" ? "on" : ""} onClick={() => upP({ kind: "load" })}>{t("asm_kLoad")}</button>
+          <button id="pk-plate" className={p.kind === "plate" ? "on" : ""} onClick={() => upP({ kind: "plate", t: p.t ?? 8, steel: p.steel ?? (code === "DBN" ? "C245" : "S235") })}>{t("asm_kPlate")}</button>
+        </div>
+        <p className="hint">{t(p.kind === "plate" ? "asm_kPlateHint" : "asm_kLoadHint")}</p>
+        {p.kind === "plate" && <div className="grid3">
+          <Num id="p-t" label="t, mm" step={1} v={p.t ?? 8} on={(v) => upP({ t: Math.max(0.5, v) })} />
+          <label><span className="lbl">{t("material")}</span><select id="p-st" value={steels.some((x) => x.id === p.steel) ? p.steel : code === "DBN" ? "C245" : "S235"} onChange={(e) => upP({ steel: e.target.value })}>{steels.map((x) => <option key={x.id}>{x.id}</option>)}</select></label>
+          <Num id="p-mesh" label={t("asm_mesh")} step={1} v={p.mesh} ph={t("asm_auto")} on={(v) => upP({ mesh: v ? Math.max(2, Math.min(20, Math.round(v))) : undefined })} />
+        </div>}
+        {p.kind !== "plate" && <div className="seg wide" role="group">
           <button id="pm-two" className={p.mode === "two" ? "on" : ""} onClick={() => upP({ mode: "two" })}>{t("asm_two")}</button>
           <button id="pm-one0" className={p.mode === "one" && (p.span ?? 0) === 0 ? "on" : ""} onClick={() => upP({ mode: "one", span: 0 })}>{t("asm_one0")}</button>
           <button id="pm-one1" className={p.mode === "one" && p.span === 1 ? "on" : ""} onClick={() => upP({ mode: "one", span: 1 })}>{t("asm_one1")}</button>
-        </div>
+        </div>}
         <Num id="p-mass" label={t("asm_mass")} v={p.mass ?? 0} on={(v) => upP({ mass: v })} />
-        {info && <p className="hint">{t("asm_area")}: {(info.area / 1e6).toFixed(2)} m² · {t("asm_edges")}: {info.edges.map((e, k) => `${k}${e.supported ? "✓" : "–"}`).join(" ")}{info.error ? ` · ${t(`asm_perr_${info.error}`)}` : ""}</p>}
+        {info && p.kind === "plate" && <p className="hint">{t("asm_area")}: {(info.area / 1e6).toFixed(2)} m²</p>}
+        {info && p.kind !== "plate" && <p className="hint">{t("asm_area")}: {(info.area / 1e6).toFixed(2)} m² · {t("asm_edges")}: {info.edges.map((e, k) => `${k}${e.supported ? "✓" : "–"}`).join(" ")}{info.error ? ` · ${t(`asm_perr_${info.error}`)}` : ""}</p>}
         <h4>{t("asm_panelLoads")}</h4>
         {pls.map(({ l, k }) => (
           <div key={k} className="pl-row">
@@ -326,7 +337,7 @@ export function AssemblyModule({ code, s, set, t }: { code: CodeId; s: AsmState;
   })();
 
   // ---- результати
-  const worst = r && [...r.members.map((m) => ({ k: "member" as const, id: m.member, ch: m.checks })), ...r.conns.map((c) => ({ k: "conn" as const, id: `${c.member} · ${c.end}`, ch: c.checks })), ...r.supports.map((x) => ({ k: "support" as const, id: x.node, ch: (x.result?.envelope ?? []) as (Check & { combo: string })[] }))]
+  const worst = r && [...r.members.map((m) => ({ k: "member" as const, id: m.member, ch: m.checks })), ...r.conns.map((c) => ({ k: "conn" as const, id: `${c.member} · ${c.end}`, ch: c.checks })), ...r.supports.map((x) => ({ k: "support" as const, id: x.node, ch: (x.result?.envelope ?? []) as (Check & { combo: string })[] })), ...r.plates.map((x) => ({ k: "plate" as const, id: x.panel, ch: x.checks }))]
     .map((x) => ({ ...x, u: govU(x.ch) })).reduce((a, b) => (!(b.u <= a.u) ? b : a));
   const govCheck = worst && gov(worst.ch);
   const maxU = worst ? worst.u : 0;
@@ -357,6 +368,12 @@ export function AssemblyModule({ code, s, set, t }: { code: CodeId; s: AsmState;
         <tr key={x.node} className={x.error ? "fail" : utilState(x.result ? govU(x.result.envelope) : 0)} onClick={() => set({ sel: { kind: "node", id: x.node } })}>
           <td>{x.node}</td><td>{x.error ? t(`asm_serr_${x.error}`) : g ? t(`chk_${g.key}`) : "—"}</td><td className="mono">{x.result ? pct(govU(x.result.envelope)) : "—"}</td></tr>); })}</tbody></table>
   );
+  const plateTable = r && r.plates.length > 0 && (
+    <table className="conn-values asm-table"><thead><tr><th>{t("asm_panel")}</th><th>t, mm</th><th>σ_ef / R, MPa</th><th>{t("nl_combo")}</th><th>w, mm</th><th>{t("rep_maxutil")}</th></tr></thead>
+      <tbody>{r.plates.map((x) => (
+        <tr key={x.panel} className={`${utilState(x.util)} ${sel?.kind === "panel" && sel.id === x.panel ? "on" : ""}`} onClick={() => set({ sel: { kind: "panel", id: x.panel } })}>
+          <td>{x.panel}</td><td className="mono">{x.t}</td><td className="mono">{x.smax.toFixed(1)} / {x.R.toFixed(0)}</td><td className="mono">{x.checks[0]?.combo}</td><td className="mono">{x.wmax.toFixed(1)}</td><td className="mono">{pct(x.util)}</td></tr>))}</tbody></table>
+  );
   // деталі вибраного
   let detail: JSX.Element | null = null;
   if (r && selMember) {
@@ -378,6 +395,14 @@ export function AssemblyModule({ code, s, set, t }: { code: CodeId; s: AsmState;
           <CheckList checks={c.checks.map((x) => ({ ...x, clause: `${x.clause} · ${t("nl_combo")} ${x.combo}` }))} t={t} /></div>)}
       </div>
     );
+  } else if (r && selPanel && selPanel.kind === "plate") {
+    const pc = r.plates.find((x) => x.panel === selPanel.id);
+    detail = pc ? (
+      <div className="panel"><h3>{t("asm_panel")} {selPanel.id} · t = {pc.t} mm</h3>
+        <CheckList checks={pc.checks.map((c) => ({ ...c, clause: `${c.clause} · ${t("nl_combo")} ${c.combo}` }))} t={t} />
+        <p className="hint">{t("asm_plateRes")}</p>
+      </div>
+    ) : null;
   } else if (r && selNode) {
     const sp = r.supports.find((x) => x.node === selNode.id);
     const R = comboRes?.reactions[selNode.id];
@@ -450,6 +475,7 @@ export function AssemblyModule({ code, s, set, t }: { code: CodeId; s: AsmState;
           {r && <>
             <div className="panel"><h3>{t("asm_members")}</h3>{memberTable}</div>
             {connTable && <div className="panel"><h3>{t("asm_joints")}</h3>{connTable}<p className="hint">{t("asm_jointsHint")}</p></div>}
+            {plateTable && <div className="panel"><h3>{t("asm_plates")}</h3>{plateTable}<p className="hint">{t("asm_plateRes")}</p></div>}
             {supTable && <div className="panel"><h3>{t("asm_bases")}</h3>{supTable}</div>}
           </>}
         </div>}
@@ -479,10 +505,12 @@ export function AssemblyModule({ code, s, set, t }: { code: CodeId; s: AsmState;
               <ol>{r.combos.map((c) => <li key={c.name}><b>{c.name}</b> {c.kind === "SLS" ? `(${t("asm_sls")}) ` : ""}{c.text}</li>)}</ol>
               <h2>{t("asm_members")}</h2>{memberTable}
               {connTable && <><h2>{t("asm_joints")}</h2>{connTable}</>}
+              {plateTable && <><h2>{t("asm_plates")}</h2>{plateTable}</>}
               {supTable && <><h2>{t("asm_bases")}</h2>{supTable}</>}
               <h2>{t("rep_checks")}</h2>
               {r.members.map((m) => <div key={m.member}><h3>{t("asm_member")} {m.member} · {m.section}</h3><CheckList checks={m.checks.map((c) => ({ ...c, clause: `${c.clause} · ${t("nl_combo")} ${c.combo}` }))} t={t} /></div>)}
               {r.conns.map((c) => <div key={`${c.member}${c.end}`}><h3>{t("asm_joint")} {c.member} · {c.end}</h3><CheckList checks={c.checks.map((x) => ({ ...x, clause: `${x.clause} · ${t("nl_combo")} ${x.combo}` }))} t={t} /></div>)}
+              {r.plates.map((x) => <div key={x.panel}><h3>{t("asm_panel")} {x.panel} · t = {x.t} mm</h3><CheckList checks={x.checks.map((c) => ({ ...c, clause: `${c.clause} · ${t("nl_combo")} ${c.combo}` }))} t={t} /></div>)}
               {r.supports.filter((x) => x.result).map((x) => <div key={x.node}><h3>{t("asm_base")} {x.node}</h3><CheckList checks={x.result!.envelope.map((c) => ({ ...c, clause: `${c.clause} · ${t("nl_combo")} ${c.combo}` }))} t={t} /></div>)}
               <p className="disclaimer">{t("disclaimer")}</p>
             </article>
@@ -505,6 +533,7 @@ function errText(e: string, t: T) {
 }
 
 export const ASM_ICONS: Record<string, JSX.Element> = {
+  platform: <><path d="M4 18l12-8h28l-12 8z" strokeWidth="2" /><path d="M10 14l12 0M16 10l-12 8" strokeWidth="0.8" /><path d="M8 18v24M30 18v24M40 12v22" strokeWidth="2.5" /><path d="M14 16h22M18 13h22" strokeWidth="0.8" /></>,
   canopy: <><path d="M6 16l18-6 18 6" strokeWidth="2.5" /><path d="M10 16v26M38 16v26" strokeWidth="3" /><path d="M4 42h8M34 42h8" /></>,
   truss: <><path d="M4 34h40M4 18h40M4 18v16M44 18v16M4 18l10 16 10-16 10 16 10-16M14 18v16M24 18v16M34 18v16" strokeWidth="1.8" /></>,
   portal: <><path d="M8 42V12h32v30" strokeWidth="3" /><path d="M5 42h6M37 42h6" /><path d="M8 18l6-6M40 18l-6-6" strokeWidth="1.5" /></>,

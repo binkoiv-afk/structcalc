@@ -22,5 +22,6 @@ export * from "./joints/basePlate";
 export * from "./joints/stack";
 export * from "./analysis/frame3d";
 export * from "./analysis/panels";
+export * from "./analysis/shell";
 export * from "./assembly/assembly";
 export * from "./assembly/templates";

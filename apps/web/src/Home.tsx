@@ -27,7 +27,7 @@ const ICONS: Record<string, JSX.Element> = {
 type Item = { id: string; ready: boolean; conn?: ConnKind; asm?: AsmTemplate };
 const GROUPS: { key: string; hint?: string; items: Item[] }[] = [
   { key: "grp_members", hint: "grp_members_h", items: [{ id: "beam", ready: true }, { id: "column", ready: true }, { id: "truss", ready: true, asm: "truss" }, { id: "frame", ready: true, asm: "portal" }] },
-  { key: "grp_asm", hint: "grp_asm_h", items: [{ id: "assembly", ready: true }, { id: "canopy", ready: true, asm: "canopy" }, { id: "bracket", ready: true, asm: "bracket" }] },
+  { key: "grp_asm", hint: "grp_asm_h", items: [{ id: "assembly", ready: true }, { id: "canopy", ready: true, asm: "canopy" }, { id: "bracket", ready: true, asm: "bracket" }, { id: "platform", ready: true, asm: "platform" }] },
   { key: "grp_conn", hint: "grp_conn_h", items: [
     { id: "node", ready: true },
     ...KINDS.map((k) => ({ id: `conn_${k}`, ready: true, conn: k })),

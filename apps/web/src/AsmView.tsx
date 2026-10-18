@@ -1,6 +1,7 @@
 // 3D-вид збірки (SVG, ортогональна проєкція): обертання, масштаб, вибір і перетягування вузлів у площинних видах,
 // навантаження, деформована схема, епюри, кольори за використанням.
 import { useMemo, useRef, useState } from "react";
+import { shellVonMises } from "@structcalc/core";
 import type { Assembly, AsmResult, FrameResult, Vec3 } from "@structcalc/core";
 import { utilState } from "./Results";
 
@@ -59,6 +60,7 @@ export function AsmView({ asm, res, combo, sel, onPick, onMoveNode, onPlace, vie
     if (!combo) return 0;
     let mx = 0;
     for (const m of Object.values(combo.members)) for (const d of m.disp) mx = Math.max(mx, Math.hypot(...d));
+    for (const u of Object.values(combo.u)) mx = Math.max(mx, Math.hypot(u[0], u[1], u[2]));
     return mx > 1e-9 ? (0.06 * size) / mx : 0;
   }, [combo, size]);
   const diagScale = useMemo(() => {
@@ -136,11 +138,36 @@ export function AsmView({ asm, res, combo, sel, onPick, onMoveNode, onPlace, vie
   type Item = { d: number; el: JSX.Element };
   const items: Item[] = [];
   const isSel = (kind: string, id: string) => sel?.kind === kind && sel.id === id;
+  const plateRes = new Map(res?.plates.map((x) => [x.panel, x]) ?? []);
   for (const p of asm.panels) {
     const c = p.nodes.map((id) => P.get(id)).filter(Boolean) as Vec3[];
     if (c.length < 3) continue;
+    const pr = p.kind === "plate" ? plateRes.get(p.id) : undefined;
+    if (pr) {
+      // пластина: сітка елементів, колір — σ_ef / R вибраного сполучення
+      const pick = (e: React.PointerEvent) => { e.stopPropagation(); if (interactive) onPick({ kind: "panel", id: p.id }); };
+      const on = isSel("panel", p.id);
+      const def = show === "def" && combo && defScale;
+      const at = (i: number, j: number): Vec3 => {
+        const q = pr.pts[i][j], u = def ? combo!.u[pr.ids[i][j]] : undefined;
+        return u ? [q[0] + u[0] * defScale, q[1] + u[1] * defScale, q[2] + u[2] * defScale] : q;
+      };
+      pr.elems.forEach((row, i) => row.forEach((eid, j) => {
+        const s4 = [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)].map(S), d = s4.reduce((a, q) => a + q.d, 0) / 4;
+        const sf = combo?.shells?.[eid];
+        const u = sf && show === "util" ? Math.max(...sf.gp.map((g) => shellVonMises(g, pr.t))) / pr.R : undefined;
+        items.push({ d: d + 1e6, el: <polygon key={`pe${eid}`} points={s4.map((q) => `${q.x},${q.y}`).join(" ")}
+          className={`av-pe ${u !== undefined ? utilState(u) : ""} ${on ? "on" : ""}`} style={u !== undefined ? { fillOpacity: 0.18 + 0.67 * Math.min(1, u) } : undefined} onPointerDown={pick} /> });
+      }));
+      if (show === "util") {
+        const s = c.map(S);
+        const g = { x: s.reduce((a, q) => a + q.x, 0) / s.length, y: s.reduce((a, q) => a + q.y, 0) / s.length };
+        items.push({ d: -1e9, el: <text key={`pu${p.id}`} x={g.x} y={g.y} className={`av-txt ${utilState(pr.util)}`} textAnchor="middle">{Math.round(pr.util * 100)}%</text> });
+      }
+      continue;
+    }
     const s = c.map(S), d = s.reduce((a, q) => a + q.d, 0) / s.length;
-    items.push({ d: d + 1e6, el: <polygon key={`p${p.id}`} points={s.map((q) => `${q.x},${q.y}`).join(" ")} className={`av-panel ${isSel("panel", p.id) ? "on" : ""}`}
+    items.push({ d: d + 1e6, el: <polygon key={`p${p.id}`} points={s.map((q) => `${q.x},${q.y}`).join(" ")} className={`av-panel ${p.kind === "plate" ? "plate" : ""} ${isSel("panel", p.id) ? "on" : ""}`}
       onPointerDown={(e) => { e.stopPropagation(); if (interactive) onPick({ kind: "panel", id: p.id }); }} /> });
   }
   const mUtil = new Map(res?.members.map((m) => [m.member, m.util]) ?? []);

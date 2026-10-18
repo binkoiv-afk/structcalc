@@ -13,7 +13,10 @@ import type { Section } from "../geometry/sections";
 import { buildCombinations } from "../loads/combinations";
 import type { LoadCategory } from "../loads/combinations";
 import { combineFrame, solveFrame } from "../analysis/frame3d";
-import type { Dof, FrameModel, FrameResult, LoadCase, MemberForces, MemberLoad } from "../analysis/frame3d";
+import type { Dof, FrameMember, FrameModel, FrameNode, FrameResult, LoadCase, MemberForces, MemberLoad, Vec3 } from "../analysis/frame3d";
+import { panelGeometry } from "../analysis/panels";
+import { shellVonMises } from "../analysis/shell";
+import type { ShellElement, ShellLoad } from "../analysis/shell";
 import { panelLoads } from "../analysis/panels";
 import type { Panel, PanelLoad, PanelInfo } from "../analysis/panels";
 import { checkBolts, checkScrews } from "../connections/bolts";
@@ -71,11 +74,19 @@ export interface AsmCase {
   members?: MemberLoad[];
 }
 
+/** Панель збірки: вантажна площа (load) або пластина-оболонка (plate), що працює сама і разом зі стрижнями */
+export type AsmPanel = Panel & {
+  mass?: number;
+  kind?: "load" | "plate";
+  /** пластина: товщина, мм; сталь; кількість елементів по сторонах (авто, якщо не задано) */
+  t?: number; steel?: string; mesh?: number;
+};
+
 export interface Assembly {
   code: CodeId;
   nodes: AsmNode[];
   members: AsmMember[];
-  panels: (Panel & { mass?: number })[];
+  panels: AsmPanel[];
   panelLoads: PanelLoad[];
   cases: AsmCase[];
   gammaC?: number; gammaN?: number;
@@ -84,6 +95,15 @@ export interface Assembly {
 export interface MemberCheck { member: string; checks: (Check & { combo: string })[]; util: number; ok: boolean; section: string }
 export interface ConnCheck { member: string; end: "i" | "j"; kind: ConnectorKind; checks: (Check & { combo: string })[]; util: number; ok: boolean }
 export interface SupportCheck { node: string; result?: NodeResult; error?: string }
+/** Пластина: сітка (для креслення), розрахунковий опір, перевірки */
+export interface PlateCheck {
+  panel: string; t: number; R: number;
+  /** вузли сітки (nu+1)×(nv+1) і id елементів nu×nv */
+  pts: Vec3[][]; elems: string[][]; ids: string[][];
+  checks: (Check & { combo: string })[]; util: number; ok: boolean;
+  /** максимальне σ_ef (МПа) і прогин пластини (SLS або ULS), мм */
+  smax: number; wmax: number;
+}
 
 export interface AsmResult {
   combos: { name: string; text: string; kind: string; factors: Record<string, number> }[];
@@ -94,6 +114,7 @@ export interface AsmResult {
   conns: ConnCheck[];
   supports: SupportCheck[];
   panels: PanelInfo[];
+  plates: PlateCheck[];
   maxUtil: number; ok: boolean;
   /** максимальне переміщення (SLS), мм */
   maxDisp: { node: string; v: number };
@@ -129,6 +150,115 @@ export function toFrame(a: Assembly): { model: FrameModel; sections: Record<stri
     return { id: m.id, i: m.i, j: m.j, sec: { A: s.A, Iy: s.Iy, Iz: s.Iz, It: s.It }, E: st.E, G: st.G, rho: st.density ?? 7850, beta: m.beta, rel: { i: rel(m.endI), j: rel(m.endJ) } };
   });
   return { model: { nodes, members }, sections };
+}
+
+/** Сітка пластин: вузли (спільні з наявними за координатами), елементи оболонки, поділ стрижнів у вузлах сітки */
+export function meshPlates(a: Assembly, model: FrameModel) {
+  const plates = a.panels.filter((p) => p.kind === "plate");
+  const key = (p: Vec3) => `${Math.round(p[0] * 10)},${Math.round(p[1] * 10)},${Math.round(p[2] * 10)}`;
+  const byKey = new Map(model.nodes.map((n) => [key([n.x, n.y, n.z]), n.id]));
+  const nodes: FrameNode[] = [...model.nodes], shells: ShellElement[] = [];
+  const created = new Set<string>();
+  const info: { panel: string; t: number; steel: string; nu: number; nv: number; pts: Vec3[][]; elems: string[][]; ids: string[][] }[] = [];
+  for (const p of plates) {
+    const g = panelGeometry(model, p);
+    const C = g.C, Q = C.length === 3 ? [C[0], C[1], C[2], C[2]] : C;
+    const d = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    const Lu = Math.max(d(Q[0], Q[1]), d(Q[3], Q[2])), Lv = Math.max(d(Q[0], Q[3]), d(Q[1], Q[2]));
+    const h = Math.max(Math.max(Lu, Lv) / 12, 40);
+    const cl = (v: number) => Math.max(2, Math.min(20, v));
+    const nu = cl(p.mesh ?? Math.ceil(Lu / h)), nv = cl(p.mesh ?? Math.ceil(Lv / h));
+    const pts: Vec3[][] = [], ids: string[][] = [];
+    for (let i = 0; i <= nu; i++) {
+      pts.push([]); ids.push([]);
+      for (let j = 0; j <= nv; j++) {
+        const X = g.X(i / nu, j / nv), k = key(X);
+        let id = byKey.get(k);
+        if (!id) { id = `${p.id}:${i}.${j}`; byKey.set(k, id); nodes.push({ id, x: X[0], y: X[1], z: X[2] }); created.add(id); }
+        pts[i].push(X); ids[i].push(id);
+      }
+    }
+    const st = steel(p.steel ?? (a.code === "DBN" ? "C245" : "S235"));
+    const elems: string[][] = [];
+    for (let i = 0; i < nu; i++) {
+      elems.push([]);
+      for (let j = 0; j < nv; j++) {
+        const id = `${p.id}#${i}.${j}`;
+        const ns = [ids[i][j], ids[i + 1][j], ids[i + 1][j + 1], ids[i][j + 1]] as [string, string, string, string];
+        elems[i].push(id);
+        // вироджений (трикутний) край: два однакові вузли — елемент пропускаємо, якщо площа нульова
+        if (new Set(ns).size < 3) continue;
+        shells.push({ id, nodes: ns, t: p.t ?? 8, E: st.E, nu: 0.3, rho: st.density ?? 7850 });
+      }
+    }
+    info.push({ panel: p.id, t: p.t ?? 8, steel: st.id, nu, nv, pts, elems, ids });
+  }
+  // поділ стрижнів у вузлах сітки, що лежать на них
+  const pos = new Map(nodes.map((n) => [n.id, [n.x, n.y, n.z] as Vec3]));
+  const split = new Map<string, { id: string; x0: number; L: number }[]>();
+  const members: FrameMember[] = [];
+  for (const m of model.members) {
+    const A = pos.get(m.i)!, B = pos.get(m.j)!, L = Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]);
+    const u: Vec3 = [(B[0] - A[0]) / L, (B[1] - A[1]) / L, (B[2] - A[2]) / L];
+    const on: { id: string; t: number }[] = [];
+    for (const id of created) {
+      const P = pos.get(id)!, w: Vec3 = [P[0] - A[0], P[1] - A[1], P[2] - A[2]];
+      const t = w[0] * u[0] + w[1] * u[1] + w[2] * u[2];
+      if (t <= 0.5 || t >= L - 0.5) continue;
+      const off = Math.hypot(w[0] - u[0] * t, w[1] - u[1] * t, w[2] - u[2] * t);
+      if (off < 0.5) on.push({ id, t });
+    }
+    if (!on.length) { members.push(m); continue; }
+    on.sort((p, q) => p.t - q.t);
+    const chain = [{ id: m.i, t: 0 }, ...on, { id: m.j, t: L }];
+    const parts: { id: string; x0: number; L: number }[] = [];
+    for (let k = 0; k < chain.length - 1; k++) {
+      const id = `${m.id}~${k}`;
+      parts.push({ id, x0: chain[k].t, L: chain[k + 1].t - chain[k].t });
+      members.push({ ...m, id, i: chain[k].id, j: chain[k + 1].id, rel: { i: k === 0 ? m.rel?.i : undefined, j: k === chain.length - 2 ? m.rel?.j : undefined } });
+    }
+    split.set(m.id, parts);
+  }
+  return { model: { nodes, members, shells } as FrameModel, split, info };
+}
+
+/** Навантаження на стрижень, поділений на частини */
+function splitLoads(ls: MemberLoad[], split: Map<string, { id: string; x0: number; L: number }[]>, Lof: (id: string) => number): MemberLoad[] {
+  const out: MemberLoad[] = [];
+  for (const l of ls) {
+    const parts = split.get(l.member);
+    if (!parts) { out.push(l); continue; }
+    if (l.kind === "point") {
+      const p = parts.find((q) => l.a >= q.x0 - 1e-9 && l.a <= q.x0 + q.L + 1e-9) ?? parts[parts.length - 1];
+      out.push({ ...l, member: p.id, a: l.a - p.x0 });
+      continue;
+    }
+    const a = l.a ?? 0, b = l.b ?? Lof(l.member), w2 = l.w2 ?? l.w1;
+    const w = (x: number) => (b > a ? l.w1 + ((w2 - l.w1) * (x - a)) / (b - a) : l.w1);
+    for (const p of parts) {
+      const lo = Math.max(a, p.x0), hi = Math.min(b, p.x0 + p.L);
+      if (hi <= lo) continue;
+      out.push({ ...l, member: p.id, a: lo - p.x0, b: hi - p.x0, w1: w(lo), w2: w(hi) });
+    }
+  }
+  return out;
+}
+
+/** Зусилля частин стрижня → зусилля всього стрижня */
+function mergeParts(r: FrameResult, split: Map<string, { id: string; x0: number; L: number }[]>) {
+  for (const [mid, parts] of split) {
+    const fs = parts.map((p) => r.members[p.id]);
+    const mf: MemberForces = { x: [], N: [], Vy: [], Vz: [], T: [], My: [], Mz: [], endI: fs[0].endI, endJ: fs[fs.length - 1].endJ, disp: [] };
+    fs.forEach((f, k) => {
+      f.x.forEach((x, q) => {
+        mf.x.push(parts[k].x0 + x);
+        for (const key of ["N", "Vy", "Vz", "T", "My", "Mz"] as const) mf[key].push(f[key][q]);
+        mf.disp.push(f.disp[q]);
+      });
+      delete r.members[parts[k].id];
+    });
+    r.members[mid] = mf;
+  }
 }
 
 const absMax = (v: number[]) => v.reduce((a, b) => Math.max(a, Math.abs(b)), 0);
@@ -215,16 +345,43 @@ function connChecks(code: CodeId, s: Section, st: string, e: EndConn, F: number[
   return [];
 }
 
+/** Довідка по пластинах (площа, нормаль) — у тому ж вигляді, що для вантажних панелей */
+function plateInfo(a: Assembly, model: FrameModel, isPlate: Set<string>): PanelInfo[] {
+  return a.panels.filter((p) => isPlate.has(p.id)).map((p) => {
+    const r = panelLoads(model, [{ ...p, mode: "two" }], []).info[0];
+    return { ...r, error: undefined };
+  });
+}
+
 export function analyzeAssembly(a: Assembly): AsmResult {
   const gc = a.gammaC ?? 1, gn = a.gammaN ?? 1;
-  const { model, sections } = toFrame(a);
+  const { model: base, sections } = toFrame(a);
   // панелі: навантаження + власна вага з маси, кг/м²
   const pl: PanelLoad[] = [...a.panelLoads];
   const gCase = a.cases.find((c) => c.cat === "G");
   for (const p of a.panels) if (p.mass && gCase) pl.push({ panel: p.id, case: gCase.id, q: -p.mass * 9.81e-6, dir: "gz" });
-  const pan = panelLoads(model, a.panels, pl);
-  const lcs: LoadCase[] = a.cases.map((c) => ({ id: c.id, nodal: c.nodal, members: [...(c.members ?? []), ...(pan.byCase.get(c.id) ?? [])], selfWeight: c.selfWeight ? 1 : 0 }));
+  const isPlate = new Set(a.panels.filter((p) => p.kind === "plate").map((p) => p.id));
+  const pan = panelLoads(base, a.panels.filter((p) => !isPlate.has(p.id)), pl.filter((l) => !isPlate.has(l.panel)));
+  // пластини: сітка оболонки, тиск — на елементи в межах вибраної частини
+  const { model, split, info: mesh } = meshPlates(a, base);
+  const Lof = (id: string) => { const m = a.members.find((x) => x.id === id)!; const i = a.nodes.find((n) => n.id === m.i)!, j = a.nodes.find((n) => n.id === m.j)!; return Math.hypot(j.x - i.x, j.y - i.y, j.z - i.z); };
+  const shellLoads = new Map<string, ShellLoad[]>();
+  for (const l of pl) {
+    const mi = mesh.find((x) => x.panel === l.panel);
+    if (!mi) continue;
+    const r = l.region ?? { u0: 0, u1: 1, v0: 0, v1: 1 };
+    const list = shellLoads.get(l.case) ?? [];
+    for (let i = 0; i < mi.nu; i++) for (let j = 0; j < mi.nv; j++) {
+      const u = (i + 0.5) / mi.nu, v = (j + 0.5) / mi.nv;
+      if (u < r.u0 || u > r.u1 || v < r.v0 || v > r.v1) continue;
+      list.push({ shell: mi.elems[i][j], q: l.q, dir: l.dir, projected: l.projected });
+    }
+    shellLoads.set(l.case, list);
+  }
+  const lcs: LoadCase[] = a.cases.map((c) => ({ id: c.id, nodal: c.nodal, members: splitLoads([...(c.members ?? []), ...(pan.byCase.get(c.id) ?? [])], split, Lof),
+    shellLoads: shellLoads.get(c.id), selfWeight: c.selfWeight ? 1 : 0 }));
   const res = solveFrame(model, lcs);
+  for (const r of Object.values(res)) mergeParts(r, split);
   // сполучення
   const loads = a.cases.map((c) => ({ cat: c.cat, label: c.label, group: c.group, gf: c.gf ?? GF_DEFAULT[a.code][c.cat], psi0: c.psi0 }));
   const influence = a.cases.map((c) => {
@@ -285,12 +442,34 @@ export function analyzeAssembly(a: Assembly): AsmResult {
       return { node: n.id, result };
     } catch (e) { return { node: n.id, error: String((e as Error).message) }; }
   });
+  // пластини: σ_ef на поверхнях у точках Гаусса ≤ 1.15·R_y·γ_c (ДБН) або f_y/γ_M0 (EN)
+  const plates: PlateCheck[] = mesh.map((mi) => {
+    const st = steel(mi.steel), t = mi.t;
+    const R = a.code === "DBN" ? 1.15 * st.strength(t, "sheet") * gc : st.yieldChar(t, "sheet");
+    let best = { s: 0, combo: "", el: "" };
+    uls.forEach((r, k) => {
+      for (const row of mi.elems) for (const id of row) {
+        const sf = r.shells?.[id];
+        if (!sf) continue;
+        const sv = Math.max(...sf.gp.map((g) => shellVonMises(g, t)));
+        if (sv > best.s) best = { s: sv, combo: ulsC[k].name, el: id };
+      }
+    });
+    const ids = new Set(mi.ids.flat());
+    let wmax = 0;
+    for (const r of sls.length ? sls : uls) for (const id of ids) { const u = r.u[id]; if (u) wmax = Math.max(wmax, Math.hypot(u[0], u[1], u[2])); }
+    const util = (best.s * gn) / R;
+    const ch = { ...mkCheck("plateVonMises", a.code === "DBN" ? "ДБН В.2.6-198, розд. 8 (плоский напружений стан, σ_ef ≤ 1.15·R_y·γ_c); пружна стадія" : "EN 1993-1-1, 6.2.1, (6.1)",
+      `σ_ef = √(σx² − σxσy + σy² + 3τ²) ≤ ${a.code === "DBN" ? "1.15·R_y·γ_c" : "f_y/γ_M0"}`,
+      `t = ${f(t, 1)} mm; σ = n/t ± 6m/t²; σ_ef = ${f(best.s, 1)} MPa / ${f(R, 0)} MPa (елемент ${best.el.split("#")[1] ?? "—"})`, util), combo: best.combo };
+    return { panel: mi.panel, t, R, pts: mi.pts, elems: mi.elems, ids: mi.ids, checks: [ch], util, ok: ch.ok, smax: best.s, wmax };
+  });
   let maxDisp = { node: "", v: 0 };
   for (const r of sls.length ? sls : uls) for (const [id, u] of Object.entries(r.u)) { const v = Math.hypot(u[0], u[1], u[2]); if (v > maxDisp.v) maxDisp = { node: id, v }; }
-  const utils = [...members.map((m) => m.util), ...conns.map((c) => c.util), ...supports.map((s) => s.result?.maxUtil ?? 0)];
+  const utils = [...members.map((m) => m.util), ...conns.map((c) => c.util), ...supports.map((s) => s.result?.maxUtil ?? 0), ...plates.map((p) => p.util)];
   return {
-    combos, uls, sls, members, conns, supports, panels: pan.info, sections, maxDisp,
+    combos, uls, sls, members, conns, supports, plates, panels: [...pan.info, ...plateInfo(a, base, isPlate)], sections, maxDisp,
     maxUtil: utils.some((x) => Number.isNaN(x)) ? NaN : Math.max(0, ...utils),
-    ok: members.every((m) => m.ok) && conns.every((c) => c.ok) && supports.every((s) => !s.error && (s.result?.ok ?? true)),
+    ok: members.every((m) => m.ok) && conns.every((c) => c.ok) && plates.every((p) => p.ok) && supports.every((s) => !s.error && (s.result?.ok ?? true)),
   };
 }
