@@ -4,7 +4,7 @@
 import { useMemo, useState } from "react";
 import {
   BOLT_CLASSES, BOLT_DIAMETERS, Check, checkJoint, CodeId, familiesFor, familySections, findSection, gussetMembersDefault, JDim, JointKind, JointParams,
-  JointResult, JPart, NodeCombo, Section, STEELS,
+  JointResult, JPart, jointSpec, JExtra, NodeCombo, Section, steel, STEELS,
 } from "@structcalc/core";
 import { jointDefaults } from "@structcalc/core";
 import { CheckList, pct, T, utilState } from "./Results";
@@ -13,6 +13,7 @@ import { casesToCombos, NodeCase } from "./NodeModule";
 
 export type JCombo = NodeCombo & { N1?: number; N2?: number; N3?: number };
 export interface JMember { fam: string; size: string; steel: string; angle: number; Lw: number; kf: number; on: boolean }
+export interface JX { id: string; kind: "plate" | "profile"; axis: "x" | "y" | "z"; a: number; b: number; t: number; cx: number; cy: number; cz: number; fam?: string; size?: string; rot?: boolean; steel?: string; name?: string }
 export interface JointLink { member: string; end: "i" | "j"; node: string }
 export interface JointState {
   kind: JointKind;
@@ -26,6 +27,8 @@ export interface JointState {
   gammaC: number; gammaN: number;
   sel: string;
   link?: JointLink;
+  /** свої деталі: пластини, ребра, профілі (у креслення і специфікацію) */
+  extras?: JX[];
   obj?: string; elem?: string;
 }
 export interface JointReturn { member: string; end: "i" | "j"; kind: JointKind; util: number; ok: boolean; gov: string }
@@ -213,6 +216,9 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
   const column = secOf(s.cFam, s.cSize, ["I"]);
   const hasCol = KIND_COLUMN.includes(kind) && s.col;
   const members = s.members.map((m) => ({ ...m, sec: secOf(m.fam, m.size, ["RHS", "CHS", "L", "C", "I"]) }));
+  const xs = s.extras ?? [];
+  const extras: JExtra[] = xs.map((x) => ({ id: x.id, kind: x.kind, axis: x.axis, a: x.a, b: x.b, t: x.t, c: [x.cx, x.cy, x.cz] as [number, number, number], rot: x.rot,
+    sec: x.kind === "profile" ? secOf(x.fam ?? "RHS_COLD", x.size ?? "", ["I", "RHS", "CHS", "C", "L"]) : undefined }));
   const src = s.cMode === "cases" ? casesToCombos(s.cases as NodeCase[], code).map((x) => x.combo as JCombo) : s.combos;
 
   const calc = useMemo((): { r?: JointResult; err?: string } => {
@@ -220,7 +226,7 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
       return { r: checkJoint({
         code, kind, beam, beamSteel: okSteel(s.bSteel), column: hasCol ? column : undefined, colSteel: okSteel(s.cSteel), colFace: s.face,
         plateSteel: okSteel(s.plSteel), p: { ...s.p, members: members.map((m) => ({ sec: m.sec, steel: okSteel(m.steel), angle: m.angle, Lw: m.Lw, kf: m.kf, on: m.on })) },
-        combos: src.map(toN), gammaC: s.gammaC, gammaN: s.gammaN,
+        combos: src.map(toN), gammaC: s.gammaC, gammaN: s.gammaN, extras,
       }) };
     } catch (e) { return { err: String((e as Error).message) }; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -275,6 +281,10 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
       {steelSel("jc-st", s.cSteel, (v) => set({ cSteel: v }))}
       <label><span className="lbl">{t("jc_face")}</span><select id="jc-face" value={s.face} onChange={(e) => set({ face: e.target.value as JointState["face"] })}>{(["flange", "web"] as const).map((f) => <option key={f} value={f}>{t(`jface_${f}`)}</option>)}</select></label>
     </>}
+    {s.col && s.face === "flange" && (kind === "endPlate" || kind === "cantilever") && <>
+      <label className="wide chk"><input id="jp-colStiff" type="checkbox" checked={!!P.colStiff} onChange={(e) => setP({ colStiff: e.target.checked, tsc: P.tsc ?? 12 })} />{t("jp_colStiff")}</label>
+      {P.colStiff && <Num id="jp-tsc" label={t("jp_tsc")} v={P.tsc ?? 12} on={(v) => setP({ tsc: v })} />}
+    </>}
     {!s.col && <p className="hint wide">{t("jc_noColumnHint")}</p>}
   </div> });
   const plSel = steelSel("jpl-st", s.plSteel, (v) => set({ plSteel: v }));
@@ -314,6 +324,52 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
   if (kind !== "beamSeat") cards.push({ id: "welds", group: "joint", title: t(kind === "gusset" ? "jc_wGusset" : kind === "finPlate" ? "jc_wFin" : "jc_wProfile"), sum: `k_f = ${P.kf}${kind === "endPlate" || kind === "flangeSplice" || kind === "cantilever" ? ` / ${P.kf2}` : ""}`, body: <div className="grid2">
     {F("kf")}{(kind === "endPlate" || kind === "flangeSplice" || kind === "cantilever") && F("kf2")}
     {kind === "gusset" && <p className="hint wide">{t("jc_wMembersHint")}</p>}</div> });
+
+  // ---- свої деталі
+  const bh = beam.h, btw = beam.dims.tw ?? beam.dims.t ?? 8;
+  const addExtra = (k: "plate" | "rib" | "profile") => {
+    const ids = xs.map((x) => x.id); let n = 1; while (ids.includes(`x${n}`)) n++;
+    const id = `x${n}`;
+    const x: JX = k === "plate" ? { id, kind: "plate", axis: "z", a: 200, b: 160, t: 10, cx: 150, cy: 0, cz: -bh / 2 - 5 }
+      : k === "rib" ? { id, kind: "plate", axis: "y", a: 80, b: Math.round(bh - 2 * (beam.dims.tf ?? 10)), t: 8, cx: 250, cy: btw / 2 + 4, cz: 0 }
+      : { id, kind: "profile", axis: "z", a: 400, b: 0, t: 0, cx: 300, cy: 0, cz: -bh / 2 - 200, fam: "RHS_COLD", size: "80×80×4" };
+    set({ extras: [...xs, { ...x, steel: s.plSteel, name: `${t(`jx_add_${k}`)} ${n}` }], sel: id });
+  };
+  const AXN = { x: ["y", "z"], y: ["x", "z"], z: ["x", "y"] } as const;
+  xs.forEach((x, k) => {
+    const up = (q: Partial<JX>) => set({ extras: xs.map((e, j) => (j === k ? { ...e, ...q } : e)) });
+    const [u, v] = AXN[x.axis];
+    const sec = extras[k].sec;
+    const sum = x.kind === "plate" ? `${x.a}×${x.b}×${x.t} · ⊥${x.axis}` : `${sec?.name ?? ""} · L = ${x.a} · ∥${x.axis}`;
+    cards.push({ id: x.id, group: "part", title: x.name || `${t(x.kind === "plate" ? "jx_plate" : "jx_profile")} ${x.id}`, sum, body: <div className="grid2">
+      <label className="wide"><span className="lbl">{t("jx_name")}</span><input id={`${x.id}-name`} value={x.name ?? ""} placeholder={`${t(x.kind === "plate" ? "jx_plate" : "jx_profile")} ${x.id}`} onChange={(e) => up({ name: e.target.value })} /></label>
+      <label className="wide"><span className="lbl">{t(x.kind === "plate" ? "jx_normal" : "jx_axis")}</span><select id={`${x.id}-ax`} value={x.axis} onChange={(e) => up({ axis: e.target.value as JX["axis"] })}>
+        {(["x", "y", "z"] as const).map((a) => <option key={a} value={a}>{t(`jx_${x.kind === "plate" ? "n" : "a"}_${a}`)}</option>)}</select></label>
+      {x.kind === "plate" ? <>
+        <Num id={`${x.id}-a`} label={`${t("jx_size")} ${u}, mm`} v={x.a} step={10} on={(n) => up({ a: Math.max(1, n) })} />
+        <Num id={`${x.id}-b`} label={`${t("jx_size")} ${v}, mm`} v={x.b} step={10} on={(n) => up({ b: Math.max(1, n) })} />
+        <Num id={`${x.id}-t`} label={t("jp_tp")} v={x.t} on={(n) => up({ t: Math.max(1, n) })} />
+      </> : <>
+        {secSel(x.id, x.fam ?? "RHS_COLD", sec?.name ?? "", ["I", "RHS", "CHS", "C", "L"], familiesFor("column"), (f, z) => up({ fam: f, size: z }))}
+        <Num id={`${x.id}-a`} label={t("jx_len")} v={x.a} step={10} on={(n) => up({ a: Math.max(1, n) })} />
+        <label className="chk"><input id={`${x.id}-rot`} type="checkbox" checked={!!x.rot} onChange={(e) => up({ rot: e.target.checked })} />{t("jx_rot")}</label>
+      </>}
+      {steelSel(`${x.id}-st`, x.steel ?? s.plSteel, (v2) => up({ steel: v2 }))}
+      <Num id={`${x.id}-cx`} label="x, mm" v={x.cx} step={10} on={(n) => up({ cx: n })} />
+      <Num id={`${x.id}-cy`} label="y, mm" v={x.cy} step={5} on={(n) => up({ cy: n })} />
+      <Num id={`${x.id}-cz`} label="z, mm" v={x.cz} step={10} on={(n) => up({ cz: n })} />
+      <p className="hint wide">{t("jx_hint")}</p>
+      <button className="ghost danger wide" id={`${x.id}-del`} onClick={() => set({ extras: xs.filter((_, j) => j !== k), sel: "" })}>{t("np_remove")}</button>
+    </div> });
+  });
+  const spec = r ? jointSpec(r.parts, extras) : [];
+  const specName = (id: string) => (id === "colStiff" ? t("jp_colStiff") : id === "webBolts" ? t("jc_webBolts") : cards.find((c) => c.id === id)?.title ?? id);
+  const specMass = spec.reduce((a, x) => a + x.mass, 0);
+  const specTable = r && (
+    <table className="conn-values"><thead><tr><th>{t("jx_part")}</th><th>{t("jx_dims")}</th><th>{t("jx_n")}</th><th>{t("jx_mass")}</th></tr></thead>
+      <tbody>{spec.map((x, k) => <tr key={k}><td>{specName(x.id)}</td><td className="mono">{x.size}</td><td className="mono">{x.n}</td><td className="mono">{x.mass > 0 ? x.mass.toFixed(1) : "—"}</td></tr>)}
+        <tr><td><b>{t("jx_total")}</b></td><td /><td /><td className="mono"><b>{specMass.toFixed(1)}</b></td></tr></tbody></table>
+  );
 
   const open = (id: string) => set({ sel: s.sel === id ? "" : id });
   const card = (x: Card) => {
@@ -396,8 +452,47 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
         return <tr key={k} className={utilState(u)}><td>{c.name}</td>{cols.map((col) => <td key={col} className="mono">{val(src[k], col) ?? 0}</td>)}<td className="mono">{pct(u)}</td></tr>;
       })}</tbody></table>
   );
+  // ---- що змінити: для кожної перевірки, що не проходить, — порада і (де можна) виправлення одним кліком
+  type Adv = { key: string; text: string; fix?: Partial<JointState["p"]> };
+  const nextD = BOLT_DIAMETERS.find((d) => d > P.d);
+  const advice: Adv[] = [];
+  const fixSteel = new Map<string, string>();
+  for (const c of r?.envelope ?? []) {
+    if (c.util <= 1 + 1e-9) continue;
+    const pre = /^j(W|Wg|Wr|Ws|F|Wb)_/.exec(c.key)?.[1], k = baseKey(c.key);
+    const fill = (txt: string) => txt.replace("{d}", String(P.d)).replace("{dn}", String(nextD ?? P.d)).replace("{cls}", P.cls).replace("{tp}", String(P.tp)).replace("{kf}", String(pre === "Wr" ? P.kf2 : P.kf));
+    let id = "", fix: Adv["fix"];
+    if (k === "boltShear" || k === "boltBearing" || k === "friction") { id = k === "boltBearing" ? "bearing" : "boltShear"; fix = k === "boltBearing" ? (kind === "finPlate" ? { tp: P.tp + 2 } : undefined) : nextD ? { d: nextD } : undefined; }
+    else if (k === "boltTension" || k === "boltShearTension") { id = "boltTension"; fix = P.cls !== "10.9" ? { cls: "10.9" } : nextD ? { d: nextD } : undefined; }
+    else if (k === "jTStubPlate" || k === "jPunchPlate" || k.startsWith("jPlate") || k === "jBlockTear") { id = k === "jBlockTear" ? "blockTear" : "plateThicker"; fix = { tp: P.tp + (kind === "finPlate" ? 2 : 4) }; }
+    else if (k === "jTStubColumn" || k === "jPunchColumn") id = "colFlange";
+    else if (k === "jColWebPanel") id = "colPanel";
+    else if (k === "jColWebComp") { id = P.colStiff ? "colStiffThicker" : "colStiff"; fix = P.colStiff ? { tsc: (P.tsc ?? 12) + 4 } : { colStiff: true, tsc: 12 }; }
+    else if (["weldMetal", "weldFusion", "weldEN"].includes(k)) { id = pre === "W" && kind === "gusset" ? "weldMember" : "weldUp"; fix = pre === "Wr" ? { kf2: P.kf2 + 1 } : pre === "W" && kind === "gusset" ? undefined : pre === "W" && kind !== "finPlate" ? { kf: P.kf + 1, kf2: P.kf2 + 1 } : { kf: P.kf + 1 }; }
+    else if (k === "weldKfMax") id = "weldKfMax";
+    else if (k === "weldKfMin" || k === "weldAmin") { id = "weldKfMin"; fix = pre === "Wr" ? { kf2: P.kf2 + 1 } : pre === "W" && kind === "gusset" ? undefined : { kf: P.kf + 1 }; }
+    else if (k === "weldLmin" || k === "weldLflank" || k === "weldLong") id = k;
+    else if (k === "jBeamWebShear" || k === "jFlangeNet") id = "beamHoles";
+    else if (k === "jCantRoot") id = "cantRoot";
+    else if (k === "jCoverNet" || k === "jCoverGross") { id = "covers"; fix = { tcf: P.tcf + 4 }; }
+    else if (k === "jWebCover") { id = "webCover"; fix = { tcw: P.tcw + 2 }; }
+    else if (k === "jWhitmore" || k === "jGussetBuck" || k === "jGussetSec") { id = k === "jGussetBuck" ? "gussetBuck" : "gusset"; fix = { tg: P.tg + 2 }; }
+    else if (k.startsWith("jRib")) { id = "rib"; fix = { tr: P.tr + 4 }; }
+    else id = "generic";
+    const key = `${id}|${pre ?? ""}`;
+    // товща плита, якої сталь не має в сортаменті, — разом з найближчою сталлю, що її має
+    if (fix?.tp) {
+      const ok = (sid: string, th: number) => { try { return Number.isFinite(steel(sid).yieldChar(th, "sheet")); } catch { return false; } };
+      if (!ok(okSteel(s.plSteel), fix.tp)) { const alt = steels.find((x) => ok(x.id, fix!.tp!)); if (alt) fixSteel.set(key, alt.id); }
+    }
+    if (!advice.some((x) => x.key === key)) advice.push({ key, text: `${tj(`chk_${c.key}`)} — ${fill(t(`adv_${id}`))}`, fix });
+  }
+  const adviceList = advice.length > 0 && (
+    <ul className="compat advice">{advice.map((x) => <li key={x.key} className="bad"><span className="cmp-ic">→</span><span>{x.text}</span>
+      {x.fix && <button className="ghost adv-fix" id={`fix-${x.key.replace("|", "-")}`} onClick={() => { const st2 = fixSteel.get(x.key); set({ p: { ...P, ...x.fix! }, ...(st2 ? { plSteel: st2 } : {}) }); }}>{t("adv_apply")}{fixSteel.get(x.key) ? ` · ${fixSteel.get(x.key)}` : ""}</button>}</li>)}</ul>
+  );
   const notes = r && r.notes.length > 0 && <ul className="compat">{r.notes.map((n) => <li key={n} className="warn"><span className="cmp-ic">!</span><span>{t(`jn_${n}`)}</span></li>)}</ul>;
-  const pick = (id: string) => set({ sel: id === "column" && !KIND_COLUMN.includes(kind) ? s.sel : id });
+  const pick = (id: string) => set({ sel: id === "colStiff" ? "column" : id === "column" && !KIND_COLUMN.includes(kind) ? s.sel : id });
 
   return (
     <main className="layout node">
@@ -411,6 +506,9 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
         </div>}
         <fieldset><legend><span className="step">1</span>{t("nd_parts")}</legend>
           <div className="parts">{cards.filter((c) => c.group === "part").map(card)}</div>
+          <div className="add-row">
+            {(["plate", "rib", "profile"] as const).map((k) => <button key={k} id={`jadd-${k}`} className="ghost add-part" onClick={() => addExtra(k)}>+ {t(`jx_add_${k}`)}</button>)}
+          </div>
         </fieldset>
         <fieldset><legend><span className="step">2</span>{t("nd_joints")}</legend>
           <div className="parts">{cards.filter((c) => c.group === "joint").map(card)}</div>
@@ -434,7 +532,7 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
         <div className="tabs" role="tablist">
           {(["results", "report"] as const).map((k) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{t(`tab_${k}`)}</button>)}
         </div>
-        {calc.err && <p className="error">{calc.err}</p>}
+        {calc.err && <p className="error">{calc.err.startsWith("steelThk:") ? t("err_steelThk").replace("{s}", calc.err.split(":")[1]).replace("{t}", calc.err.split(":")[2]) : calc.err}</p>}
         {r && tab === "results" && (
           <div className="results">
             {summary}
@@ -442,8 +540,10 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
               <JointViews r={r} sel={s.sel} onPick={pick} utilOf={utilOf} t={t} />
               <p className="hint">{t("jv_hint")}</p>
             </div>
+            {adviceList && <div className="panel"><h3>{t("adv_title")}</h3>{adviceList}<p className="hint">{t("adv_hint")}</p></div>}
             {notes && <div className="panel"><h3>{t("jn_title")}</h3>{notes}</div>}
             <div className="panel"><h3>{t("nl_byCombo")}</h3>{comboTable}</div>
+            <div className="panel"><h3>{t("jx_spec")}</h3>{specTable}<p className="hint">{t("jx_specHint")}</p></div>
             {r.values.length > 0 && <div className="panel"><h3>{t("conn_values")}</h3>
               <table className="conn-values"><tbody>{r.values.map((v) => <tr key={v.k}><td>{v.k}</td><td className="mono">{v.v}</td></tr>)}</tbody></table></div>}
             <div className="panel"><h3>{t("nl_envelope")}</h3>{envelopeList}</div>
@@ -471,6 +571,8 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
               <div className="rep-scheme"><JointViews r={r} sel="" onPick={() => undefined} utilOf={() => undefined} t={t} interactive={false} /></div>
               <h2>{t("nd_parts")}</h2>
               <table className="conn-values"><tbody>{cards.map((x) => <tr key={x.id}><td>{x.title}</td><td className="mono">{x.sum}</td></tr>)}</tbody></table>
+              <h2>{t("jx_spec")}</h2>
+              {specTable}
               {notes && <><h2>{t("jn_title")}</h2>{notes}</>}
               <h2>{t("nl_byCombo")}</h2>
               {comboTable}

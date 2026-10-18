@@ -530,3 +530,7 @@ main.library .inputs { display: flex; flex-direction: column; gap: 14px; }
 .jlink { border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 10px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13.5px; }
 .jlink .hint { margin: 0; }
 .asm-jbtn { margin-top: 6px; }
+.advice li { align-items: center; }
+.advice li > span:nth-child(2) { flex: 1; }
+.adv-fix { white-space: nowrap; padding: 4px 10px; font-size: 12.5px; }
+.add-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

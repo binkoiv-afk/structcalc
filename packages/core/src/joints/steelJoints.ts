@@ -42,7 +42,12 @@ export interface JointParams {
   ts: number; bs: number; hs: number; tr: number; br: number; ar: number; kV: number;
   /** консоль: виліт до точки сили */
   lever: number;
+  /** ребра колони навпроти полиць балки (поперечні, з обох боків стінки), товщина */
+  colStiff?: boolean; tsc?: number;
 }
+
+/** Своя деталь: пластина (товщина t уздовж axis, a × b у площині двох інших осей) або профіль (довжина a уздовж axis); c — центр, мм */
+export interface JExtra { id: string; kind: "plate" | "profile"; axis: JAxis; a: number; b: number; t: number; c: [number, number, number]; sec?: Section; rot?: boolean }
 
 export interface JointInput {
   code: CodeId;
@@ -55,6 +60,8 @@ export interface JointInput {
   /** сполучення: N, V_z, V_y, M_y, M_z, T (Н, Н·мм); вузол ферми — N1, N2, N3 (зусилля стрижнів решітки, Н) і P (сила у вузлі); консоль — P, H, Q */
   combos: (NodeCombo & { N1?: number; N2?: number; N3?: number })[];
   gammaC?: number; gammaN?: number;
+  /** свої деталі — креслення і специфікація (у перевірки міцності не входять) */
+  extras?: JExtra[];
 }
 
 export type JAxis = "x" | "y" | "z";
@@ -118,6 +125,8 @@ interface Mat { R: number; Rs: number; Ru: number; Ryn: number; Run: number; fy:
 function mat(code: CodeId, id: string, t: number, gc: number): Mat {
   const g = steel(id);
   const Ryn = g.yieldChar(t, "sheet"), Run = g.ultimate(t, "sheet");
+  // сталь не постачається такої товщини (табл. норм) — зрозуміла помилка замість NaN
+  if (!Number.isFinite(Ryn) || !Number.isFinite(Run)) throw new Error(`steelThk:${id}:${Math.round(t)}`);
   if (code === "DBN") {
     const R = g.strength(t, "sheet") * gc;
     // R_u = R_un/γ_u, γ_u = 1.3 (розрахунок за тимчасовим опором, переріз нетто)
@@ -215,6 +224,9 @@ export function checkJoint(i: JointInput): JointResult {
   const ctw = col?.dims.tw ?? 10, ctf = col?.dims.tf ?? 15, cr = col?.dims.r ?? 0;
   const tSup = col ? (face === "flange" ? ctf : ctw) : p.tp;
   const mc = col ? mat(code, i.colSteel ?? i.plateSteel, Math.max(ctf, ctw), gc) : mp;
+  // ребра колони — лише при примиканні до полиці колони
+  const stiff = !!(col && face === "flange" && p.colStiff && (i.kind === "endPlate" || i.kind === "cantilever"));
+  const tsc = p.tsc ?? 12, bst = col ? Math.max(20, (col.b - ctw) / 2 - 10) : 0;
   let perCombo: (c: JointInput["combos"][number]) => Check[] = () => [];
   const beamLen = Math.max(500, 1.6 * h);
   const sps = secPolys(s);
@@ -299,6 +311,16 @@ export function checkJoint(i: JointInput): JointResult {
         out.push(...checkBolts({ code, kind: p.friction ? "friction" : "bearing", d: p.d, boltClass: p.cls, shearPlanes: 1, tmin: i.kind === "flangeSplice" ? p.tp : Math.min(p.tp, tSup),
           Ryn: mp.Ryn, Run: mp.Run, group: { rows: rowsZ.length, cols: 2, px: p.g, py: rowsZ.length > 1 ? (rowsZ[0] - rowsZ[rowsZ.length - 1]) / (rowsZ.length - 1) : p.p },
           a: p.e1, Fx: 0, Fy: V, M: 0, T: Fbmax * nb / gn, gammaC: gc, gammaN: gn }).checks);
+        // продавлювання (вирив головки / гайки крізь лист) найнавантаженішим болтом: плита і полиця колони
+        const dm = 1.6 * p.d;
+        const punch = (tl: number, m: Mat) => (code === "DBN" ? Math.PI * dm * tl * m.Rs : (0.6 * Math.PI * dm * tl * m.fu) / 1.25);
+        const sheets: [string, number, Mat][] = [["jPunchPlate", p.tp, mp]];
+        if (col && i.kind === "endPlate" && face === "flange") sheets.push(["jPunchColumn", ctf, mc]);
+        for (const [key, tl, m] of sheets) {
+          const Bp = punch(tl, m);
+          out.push(mkCheck(key, code === "DBN" ? "зріз листа по контуру шайби π·d_m·t·R_s (ДБН окремої формули не має; за EN 1993-1-8, табл. 3.4)" : "EN 1993-1-8, табл. 3.4 (B_p,Rd)",
+            code === "DBN" ? "F_t ≤ π·d_m·t·R_s" : "F_t ≤ 0.6·π·d_m·t·f_u/γ_M2", `d_m = ${f(dm, 0)}, t = ${tl} mm; ${kNs(Fbmax)} / ${kNs(Bp)} kN`, Fbmax / Bp));
+        }
         // T-елементи плити (і полиці колони) по рядах
         const ep = (p.bp - p.g) / 2;
         rowsZ.forEach((z, k) => {
@@ -338,7 +360,12 @@ export function checkJoint(i: JointInput): JointResult {
             `V_wp = M/(h − t_f) = ${kNs(Vwp)} kN; A_vc = ${f(Avc, 0)} mm²; ${kNs(Vwp)} / ${kNs(0.9 * Avc * mc.Rs)} kN`, Vwp / (0.9 * Avc * mc.Rs)));
           const sp2 = welded ? 0 : p.tp;
           const beff = tf + 2 * Math.SQRT2 * af + 5 * (ctf + cr) + 2 * sp2;
-          out.push(mkCheck("jColWebComp", code === "DBN" ? "ДБН В.2.6-198 (місцеві напруження в стінці колони під зосередженим зусиллям), b_eff за EN 1993-1-8, 6.2.6.2" : "EN 1993-1-8, 6.2.6.2, (6.9) без ω, ρ", "F_c ≤ b_eff·t_wc·R_y",
+          if (stiff) {
+            // ребра колони: стиск сприймають ребра разом зі смугою стінки (зминання торців ребер, ребра щільно до полиць)
+            const As = 2 * bst * tsc, Fr = (beff * ctw + As) * mc.R;
+            out.push(mkCheck("jColWebComp", code === "DBN" ? "ДБН В.2.6-198, поперечні ребра колони: смуга стінки b_eff і ребра на стиск" : "EN 1993-1-8, 6.2.6.2 і EN 1993-1-5, 9.1 (поперечні ребра)", "F_c ≤ (b_eff·t_wc + 2·b_s·t_s)·R_y",
+              `b_eff = ${f(beff, 0)} mm, ребра 2×${f(bst, 0)}×${tsc}; ${kNs(Ff)} / ${kNs(Fr)} kN`, Ff / Fr));
+          } else out.push(mkCheck("jColWebComp", code === "DBN" ? "ДБН В.2.6-198 (місцеві напруження в стінці колони під зосередженим зусиллям), b_eff за EN 1993-1-8, 6.2.6.2" : "EN 1993-1-8, 6.2.6.2, (6.9) без ω, ρ", "F_c ≤ b_eff·t_wc·R_y",
             `b_eff = ${f(beff, 0)} mm; ${kNs(Ff)} / ${kNs(beff * ctw * mc.R)} kN`, Ff / (beff * ctw * mc.R), ["colWebNoBuckling"]));
         } else {
           notes.push("colWebFace");
@@ -370,6 +397,10 @@ export function checkJoint(i: JointInput): JointResult {
     // креслення
     const len = welded ? Math.max(p.lever + 150, 400) : beamLen;
     if (col && i.kind !== "flangeSplice") parts.push(...columnParts(col, face, [-hp / 2 - 150, hp / 2 + 150]));
+    if (stiff && col) for (const sz of [1, -1]) for (const sy of [1, -1]) {
+      const z = sz * (h / 2 - tf / 2), y0 = sy > 0 ? ctw / 2 : -ctw / 2 - bst;
+      parts.push({ id: "colStiff", cls: "plate", axis: "z", from: z - tsc / 2, to: z + tsc / 2, poly: rect(-col.h + ctf, -ctf, y0, y0 + bst) });
+    }
     if (welded) {
       addBeam(0, len);
       dims.push({ view: "front", a: [0, -h / 2 - 40], b: [p.lever, -h / 2 - 40], text: `a = ${p.lever}`, part: "beam" });
@@ -553,6 +584,8 @@ export function checkJoint(i: JointInput): JointResult {
       { view: "front", a: [xr + 40, zb], b: [xr + 40, -h / 2], text: `${p.ar}`, part: "rib" });
   }
 
+  for (const e of i.extras ?? []) parts.push(...extraParts(e));
+
   const combos: JointComboResult[] = i.combos.map((c) => {
     const checks = perCombo(c);
     const u = checks.map((x) => x.util);
@@ -567,4 +600,42 @@ export function checkJoint(i: JointInput): JointResult {
   const us = envelope.map((x) => x.util);
   return { combos, envelope, parts, dims, values, notes: [...new Set(notes)],
     maxUtil: us.some((x) => Number.isNaN(x)) ? NaN : Math.max(0, ...us), ok: envelope.every((x) => x.ok) };
+}
+
+// ---------------------------------------------------------------- свої деталі і специфікація
+
+const AX: JAxis[] = ["x", "y", "z"];
+const otherAx = (a: JAxis) => AX.filter((x) => x !== a) as [JAxis, JAxis];
+function extraParts(e: JExtra): JPart[] {
+  const [u, v] = otherAx(e.axis), at = (q: JAxis) => e.c[AX.indexOf(q)], ca = at(e.axis);
+  if (e.kind === "plate" || !e.sec) {
+    return [{ id: e.id, cls: "plate extra", axis: e.axis, from: ca - e.t / 2, to: ca + e.t / 2, poly: rect(at(u) - e.a / 2, at(u) + e.a / 2, at(v) - e.b / 2, at(v) + e.b / 2) }];
+  }
+  // профіль уздовж axis: переріз secPoly у площині (u, v), rot — поворот на 90°
+  const tr = (l?: [number, number][]) => l?.map(([p, q]) => (e.rot ? [-q + at(u), p + at(v)] : [p + at(u), q + at(v)]) as [number, number]);
+  return secPolys(e.sec).map((sp) => ({ id: e.id, cls: "steel extra", axis: e.axis, from: ca - e.a / 2, to: ca + e.a / 2, poly: tr(sp.poly)!, hole: tr(sp.hole) }));
+}
+
+const polyArea = (l: [number, number][]) => Math.abs(l.reduce((a, [x, y], k) => { const [x2, y2] = l[(k + 1) % l.length]; return a + x * y2 - x2 * y; }, 0)) / 2;
+
+export interface JSpecRow { id: string; kind: "plate" | "bolt" | "profile"; size: string; n: number; mass: number }
+/** Специфікація деталей вузла: пластини (габарити, кількість, маса), болти (кількість), свої профілі; балка і колона не входять */
+export function jointSpec(parts: JPart[], extras: JExtra[] = []): JSpecRow[] {
+  const rows = new Map<string, JSpecRow>();
+  const add = (id: string, kind: JSpecRow["kind"], size: string, mass: number) => {
+    const k = `${id}|${size}`, r = rows.get(k);
+    if (r) { r.n++; r.mass += mass; } else rows.set(k, { id, kind, size, n: 1, mass });
+  };
+  for (const pt of parts) {
+    const L = pt.to - pt.from;
+    if (pt.cls === "bolt") { add(pt.id, "bolt", `${f(2 * Math.max(...pt.poly.map((q) => Math.abs(q[0] - pt.poly[0][0]))) / 2, 0)}`, 0); continue; }
+    if (!pt.cls.includes("plate")) continue;
+    const us = pt.poly.map((q) => q[0]), vs = pt.poly.map((q) => q[1]);
+    const dims = [L, Math.max(...us) - Math.min(...us), Math.max(...vs) - Math.min(...vs)].sort((a, b) => b - a).map((d) => Math.round(d));
+    add(pt.id, "plate", `${dims[0]}×${dims[1]}×${dims[2]}`, (polyArea(pt.poly) - (pt.hole ? polyArea(pt.hole) : 0)) * L * 7.85e-6);
+  }
+  for (const e of extras) if (e.kind === "profile" && e.sec) add(e.id, "profile", `${e.sec.name} L = ${Math.round(e.a)}`, (e.sec.A * e.a * 7.85e-6));
+  // болти: діаметр уже в ключі розміру — переписуємо його як «M d»
+  for (const r of rows.values()) if (r.kind === "bolt") r.size = `M${r.size}`;
+  return [...rows.values()];
 }
