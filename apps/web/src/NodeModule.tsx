@@ -9,10 +9,11 @@ import {
 import { CheckList, pct, T, utilState } from "./Results";
 import { FamilyOptions } from "./SectionModule";
 import { isJointKind, jointInit, JointModule, JointReturn, JointState } from "./JointModule";
+import { freeInit, FreeJointModule, FreeState } from "./FreeJointModule";
 import type { JointKind } from "@structcalc/core";
 
-export type NodeTmpl = "baseHinged" | "baseRigid" | "bracket" | JointKind;
-const READY: NodeTmpl[] = ["baseHinged", "baseRigid", "bracket", "finPlate", "endPlate", "flangeSplice", "coverSplice", "gusset", "beamSeat", "cantilever"];
+export type NodeTmpl = "baseHinged" | "baseRigid" | "bracket" | JointKind | "free";
+const READY: NodeTmpl[] = ["baseHinged", "baseRigid", "bracket", "finPlate", "endPlate", "flangeSplice", "coverSplice", "gusset", "beamSeat", "cantilever", "free"];
 const SOON: string[] = [];
 type PartId = "profile" | "plate" | "ribs" | "stack" | "anchors" | "concrete";
 type JointId = "wProfile" | "wRib" | "anchorJ";
@@ -43,6 +44,8 @@ export interface NodeState {
   cMode: "manual" | "cases"; cases: NodeCase[];
   /** сталевий вузол примикання / стик (шаблони finPlate … cantilever) */
   j?: JointState;
+  /** вільний вузол */
+  fj?: FreeState;
   /** база відкрита зі «Збірки» (вузол збірки) */
   asmLink?: { node: string };
 }
@@ -70,6 +73,7 @@ const GF: Record<CodeId, Record<LoadCategory, number>> = { DBN: { G: 1.1, L: 1.2
 /** Типові параметри шаблону */
 export function pickTmpl(s: NodeState, k: NodeTmpl, code: CodeId): Partial<NodeState> {
   if (isJointKind(k)) return { tmpl: k, j: jointInit(k, code), asmLink: undefined };
+  if (k === "free") return { tmpl: k, fj: s.fj ?? freeInit(code), asmLink: undefined };
   const st = code === "DBN" ? "C245" : "S235";
   const base = { tmpl: k, sel: "profile" as const, pSteel: st, plSteel: st, asmLink: undefined };
   if (k === "baseHinged") return { ...base, family: "HEB", size: "HEB 200", lever: 0, L: 360, B: 380, t: 25, ribs: false, ribTips: false, aFree: false, kf: 6, milled: false, reinf: true,
@@ -102,6 +106,7 @@ export const NODE_ICONS: Record<string, JSX.Element> = {
   flangeSplice: <><path d="M4 24h17M27 24h17" strokeWidth="4" /><path d="M22 10v28M26 10v28" strokeWidth="3" /></>,
   coverSplice: <><path d="M4 24h18M26 24h18" strokeWidth="4" /><path d="M12 19h24M12 29h24" strokeWidth="2.5" /></>,
   gusset: <><path d="M4 36h40" strokeWidth="3" /><path d="M24 36L12 12M24 36L36 12" strokeWidth="3" /><path d="M16 36l4-12h8l4 12z" /></>,
+  free: <><rect x="6" y="8" width="10" height="32" /><path d="M16 22h14" strokeWidth="3" /><rect x="30" y="16" width="14" height="12" /><circle cx="37" cy="22" r="2" /><path d="M16 14l4 0M16 30l4 0" strokeWidth="2" /></>,
   cantilever: <><path d="M6 4v40" strokeWidth="4" /><path d="M6 14h34" strokeWidth="4" /><path d="M6 30L40 14" strokeWidth="1.5" /></>,
 };
 
@@ -429,7 +434,7 @@ export function NodeModule({ code, s, set, t, onReturn, onReturnBase }: { code: 
   const kN = 1000, kNm = 1e6;
 
   const calc = useMemo((): { r?: NodeResult; err?: string } => {
-    if (!s.tmpl || isJointKind(s.tmpl)) return {};
+    if (!s.tmpl || isJointKind(s.tmpl) || s.tmpl === "free") return {};
     try {
       const fck = CONCRETE_CLASSES.find((c) => c.id === s.conc)?.fck ?? 20;
       const src = s.cMode === "cases" ? casesToCombos(s.cases, code).map((x) => x.combo) : s.combos;
@@ -472,6 +477,10 @@ export function NodeModule({ code, s, set, t, onReturn, onReturnBase }: { code: 
     );
   }
 
+  if (s.tmpl === "free") {
+    const fj = s.fj ?? freeInit(code);
+    return <FreeJointModule code={code} s={fj} set={(p) => set({ fj: { ...fj, ...p } })} t={t} back={() => set({ tmpl: null })} />;
+  }
   if (isJointKind(s.tmpl)) {
     const j = s.j?.kind === s.tmpl ? s.j : jointInit(s.tmpl, code);
     return <JointModule code={code} s={j} set={(p) => set({ j: { ...j, ...p } })} t={t} back={() => set({ tmpl: null })} onReturn={onReturn} />;

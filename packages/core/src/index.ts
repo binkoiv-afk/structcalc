@@ -21,6 +21,7 @@ export * from "./geometry/generator";
 export * from "./joints/basePlate";
 export * from "./joints/stack";
 export * from "./joints/steelJoints";
+export * from "./joints/freeJoint";
 export * from "./analysis/frame3d";
 export * from "./analysis/panels";
 export * from "./analysis/shell";

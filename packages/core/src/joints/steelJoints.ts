@@ -606,7 +606,7 @@ export function checkJoint(i: JointInput): JointResult {
 
 const AX: JAxis[] = ["x", "y", "z"];
 const otherAx = (a: JAxis) => AX.filter((x) => x !== a) as [JAxis, JAxis];
-function extraParts(e: JExtra): JPart[] {
+export function extraParts(e: JExtra): JPart[] {
   const [u, v] = otherAx(e.axis), at = (q: JAxis) => e.c[AX.indexOf(q)], ca = at(e.axis);
   if (e.kind === "plate" || !e.sec) {
     return [{ id: e.id, cls: "plate extra", axis: e.axis, from: ca - e.t / 2, to: ca + e.t / 2, poly: rect(at(u) - e.a / 2, at(u) + e.a / 2, at(v) - e.b / 2, at(v) + e.b / 2) }];
@@ -639,3 +639,6 @@ export function jointSpec(parts: JPart[], extras: JExtra[] = []): JSpecRow[] {
   for (const r of rows.values()) if (r.kind === "bolt") r.size = `M${r.size}`;
   return [...rows.values()];
 }
+
+/** Болт уздовж осі (стрижень, головка, гайка) — для інших модулів креслення */
+export const boltParts = bolt;
