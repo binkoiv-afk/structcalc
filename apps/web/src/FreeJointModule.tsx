@@ -1,6 +1,8 @@
 // Вільний вузол: свої деталі (пластини, профілі) і свої зв'язки між ними (шви, групи болтів), сила в будь-якій точці.
-// Програма розподіляє зусилля по зв'язках (деталі — жорсткі тіла, зв'язки — пружні групи) і перевіряє кожен зв'язок.
+// Програма розподіляє зусилля по зв'язках (пластини — МСЕ оболонки, профілі — жорсткі тіла, зв'язки — пружини)
+// і перевіряє кожен зв'язок, переріз деталі біля нього і напруження в пластинах між зв'язками.
 import { useMemo, useState } from "react";
+import type { FPlateMap } from "@structcalc/core";
 import {
   BOLT_CLASSES, BOLT_DIAMETERS, checkFree, CodeId, familiesFor, familySections, findSection, FConn, FPart, FreeResult, jointSpec, JExtra, Section, STEELS,
 } from "@structcalc/core";
@@ -30,11 +32,11 @@ export function freeInit(code: CodeId): FreeState {
     parts: [
       { id: "P1", name: "", kind: "plate", axis: "x", a: 300, b: 400, t: 20, cx: -10, cy: 0, cz: 0, steel: st, role: "support" },
       { id: "P2", name: "", kind: "plate", axis: "y", a: 200, b: 200, t: 12, cx: 100, cy: 0, cz: 0, steel: st, role: "free" },
-      { id: "P3", name: "", kind: "plate", axis: "y", a: 300, b: 150, t: 10, cx: 300, cy: 11, cz: 0, steel: st, role: "load" },
+      { id: "P3", name: "", kind: "plate", axis: "y", a: 380, b: 150, t: 10, cx: 260, cy: 11, cz: 0, steel: st, role: "load" },
     ],
     conns: [
       w({ id: "C1", a: "P1", b: "P2", kind: "weld", n: "x", shape: "two", L: 200, s: 12, kf: 6 }),
-      w({ id: "C2", a: "P2", b: "P3", kind: "bolts", n: "y", ox: 160, oy: 6, oz: 0, rows: 2, cols: 2, pu: 70, pv: 80, d: 16 }),
+      w({ id: "C2", a: "P2", b: "P3", kind: "bolts", n: "y", ox: 135, oy: 6, oz: 0, rows: 2, cols: 2, pu: 70, pv: 60, d: 16 }),
     ],
     ax: 420, ay: 11, az: 0, combos: [{ name: "1", Fz: -8 }, { name: "2", Fz: -5, Fy: 1.5 }], sel: "P3", gammaC: 1, gammaN: 1,
   };
@@ -59,6 +61,34 @@ function gov<C extends { key: string; util: number }>(cs: C[]): C | undefined {
   return bad.length ? pick(bad) : pick(cs.filter((c) => !DETAIL.has(c.key))) ?? pick(cs);
 }
 const F_KEYS = ["Fx", "Fy", "Fz", "Mx", "My", "Mz"] as const;
+const PLATE_T = [4, 5, 6, 8, 10, 12, 14, 16, 18, 20, 22, 25, 28, 30, 32, 36, 40, 45, 50];
+
+/** карта σ_ef / межа по елементах пластини: зелений → жовтий → червоний (понад 100 %) */
+function StressMap({ m, title }: { m: FPlateMap; title: string }) {
+  const W = 260, sc = Math.min(W / (m.nu * m.hu), 150 / (m.nv * m.hv)), w = m.nu * m.hu * sc, h = m.nv * m.hv * sc;
+  const col = (u: number) => {
+    if (!(u <= 1)) return "var(--bad, #d64545)";
+    const x = Math.max(0, Math.min(1, u)), hue = 140 - 110 * x;
+    return `hsl(${hue} 65% ${55 - 10 * x}%)`;
+  };
+  const k = m.util.reduce((b, v, q) => (v > m.util[b] ? q : b), 0), mx = m.util[k] ?? 0;
+  const X = (u: number) => Math.max(0, Math.min(w, (u - m.u0) * sc)), Y = (v: number) => Math.max(0, Math.min(h, h - (v - m.v0) * sc));
+  const cx = ((k % m.nu) + 0.5) * m.hu * sc, cy = h - (Math.floor(k / m.nu) + 0.5) * m.hv * sc;
+  return (
+    <figure className="stress-map">
+      <svg viewBox={`-4 -4 ${w + 8} ${h + 22}`} width={w + 8} role="img" aria-label={title}>
+        {m.util.map((u, q) => <rect key={q} x={(q % m.nu) * m.hu * sc} y={h - (Math.floor(q / m.nu) + 1) * m.hv * sc} width={m.hu * sc + 0.3} height={m.hv * sc + 0.3} fill={col(u)} />)}
+        <rect x={0} y={0} width={w} height={h} fill="none" stroke="currentColor" strokeWidth={1} />
+        {m.welds.map(([u1, v1, u2, v2], q) => <line key={`w${q}`} x1={X(u1)} y1={Y(v1)} x2={X(u2)} y2={Y(v2)} stroke="currentColor" strokeWidth={3} strokeLinecap="round" opacity={0.75} />)}
+        {m.bolts.map(([u, v], q) => <circle key={`b${q}`} cx={X(u)} cy={Y(v)} r={4} fill="var(--surface, #fff)" stroke="currentColor" strokeWidth={1.5} />)}
+        <path d={`M${cx - 5} ${cy - 5}L${cx + 5} ${cy + 5}M${cx - 5} ${cy + 5}L${cx + 5} ${cy - 5}`} stroke="currentColor" strokeWidth={2} />
+        <text x={0} y={h + 15} fontSize={11} fill="currentColor">{m.U} →</text>
+        <text x={w} y={h + 15} fontSize={11} fill="currentColor" textAnchor="end">↑ {m.V}</text>
+      </svg>
+      <figcaption>{title} · <b className={`jutil ${utilState(mx)}`}>{pct(mx)}</b></figcaption>
+    </figure>
+  );
+}
 
 export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: FreeState; set: (p: Partial<FreeState>) => void; t: T; back: () => void }) {
   const [tab, setTab] = useState<"results" | "report">("results");
@@ -176,7 +206,7 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
 
   const open = (id: string) => set({ sel: s.sel === id ? "" : id });
   const card = (x: Card) => {
-    const u = x.group === "joint" ? util(x.id) : undefined;
+    const u = util(x.id);
     return (
       <div key={x.id} className={`part ${s.sel === x.id ? "open" : ""}`}>
         <button className="part-head" id={`part-${x.id}`} onClick={() => open(x.id)}>
@@ -235,7 +265,18 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
   for (const [id, u] of Object.entries(r?.connUtil ?? {})) {
     if (u <= 1 + 1e-9) continue;
     const k = s.conns.findIndex((c) => c.id === id), c = s.conns[k];
-    if (!c) continue;
+    if (!c) {
+      const q = s.parts.findIndex((x) => x.id === id), p = s.parts[q];
+      if (!p) continue;
+      if (p.kind === "plate") {
+        const nt = PLATE_T.find((x) => x > p.t);
+        advice.push({ id, text: `${p.name || p.id} — ${t("fj_adv_plate")}`, fix: nt ? () => upPart(q, { t: nt }) : undefined });
+      } else {
+        const l = familySections(p.fam ?? "RHS_COLD"), j = l.findIndex((x) => x.name === secOf(p.fam, p.size).name), nx = l[j + 1];
+        advice.push({ id, text: `${p.name || p.id} — ${t("fj_adv_profile")}`, fix: nx ? () => upPart(q, { size: nx.name }) : undefined });
+      }
+      continue;
+    }
     const bad = r!.envelope.filter((e) => e.conn === id && e.util > 1);
     if (c.kind === "weld") {
       const kmax = bad.some((e) => e.key === "weldKfMax");
@@ -256,7 +297,10 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
       <tbody>{spec.map((x, k) => <tr key={k}><td>{nameOf(x.id)}</td><td className="mono">{x.size}</td><td className="mono">{x.n}</td><td className="mono">{x.mass > 0 ? x.mass.toFixed(1) : "—"}</td></tr>)}
         <tr><td><b>{t("jx_total")}</b></td><td /><td /><td className="mono"><b>{spec.reduce((a, x) => a + x.mass, 0).toFixed(1)}</b></td></tr></tbody></table>
   );
-  const envelopeList = r && <CheckList checks={r.envelope.map((c) => ({ ...c, clause: `${c.clause.replace(` · ${c.conn}`, "")} · ${nameOf(c.conn)} · ${t("nl_combo")} ${c.combo}` }))} t={tf} />;
+  // у пункті норми — ідентифікатори зв'язків і деталей; показуємо їх назви
+  const ids = new Set([...s.parts.map((x) => x.id), ...s.conns.map((x) => x.id)]);
+  const envelopeList = r && <CheckList checks={r.envelope.map((c) => ({ ...c, clause: `${c.clause.split(" · ").map((x) => (ids.has(x) ? nameOf(x) : x)).join(" · ")} · ${t("nl_combo")} ${c.combo}` }))} t={tf} />;
+  const stressMaps = r && r.plates.length > 0 && <div className="stress-maps">{r.plates.map((m) => <StressMap key={m.part} m={m} title={nameOf(m.part)} />)}</div>;
   const utilOf = (id: string) => r?.connUtil[id];
 
   return (
@@ -298,8 +342,9 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
               <JointViews r={{ ...r, combos: [], values: [] } as never} sel={s.sel} onPick={(id) => set({ sel: id })} utilOf={utilOf} t={t} />
               <p className="hint">{t("fj_viewHint")}</p>
             </div>
-            {r.notes.length > 0 && <div className="panel"><ul className="compat">{r.notes.map((n) => <li key={n} className="warn"><span className="cmp-ic">!</span><span>{t("fj_loose").replace("{p}", nameOf(n.split(":")[1]))}</span></li>)}</ul></div>}
+            {r.notes.length > 0 && <div className="panel"><ul className="compat">{r.notes.map((n) => { const q = n.split(":"); return <li key={n} className="warn"><span className="cmp-ic">!</span><span>{q[0] === "offplate" ? t("fj_offplate").replace("{c}", nameOf(q[1])).replace("{p}", nameOf(q[2])) : t("fj_loose").replace("{p}", nameOf(q[1]))}</span></li>; })}</ul></div>}
             {adviceList && <div className="panel"><h3>{t("adv_title")}</h3>{adviceList}</div>}
+            {stressMaps && <div className="panel"><h3>{t("fj_stress")}</h3>{stressMaps}<p className="hint">{t("fj_stressHint")}</p></div>}
             <div className="panel"><h3>{t("fj_forces")}</h3>{forcesTable}<p className="hint">{t("fj_forcesHint")}</p></div>
             <div className="panel"><h3>{t("jx_spec")}</h3>{specTable}</div>
             <div className="panel"><h3>{t("nl_envelope")}</h3>{envelopeList}</div>
@@ -329,6 +374,7 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
               <table className="conn-values"><tbody>{cards.map((x) => <tr key={x.id}><td>{x.title}</td><td className="mono">{x.sum}</td></tr>)}</tbody></table>
               <p className="hint">{t("fj_method")}</p>
               <h2>{t("fj_forces")}</h2>{forcesTable}
+              {stressMaps && <><h2>{t("fj_stress")}</h2>{stressMaps}</>}
               <h2>{t("jx_spec")}</h2>{specTable}
               <h2>{t("rep_checks")}</h2>{envelopeList}
               <p className="disclaimer">{t("disclaimer")}</p>

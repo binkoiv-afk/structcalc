@@ -8,11 +8,11 @@ const base = (): FreeInput => ({
   parts: [
     { id: "S", kind: "plate", axis: "x", a: 300, b: 400, t: 20, c: [-10, 0, 0], steel: "C245", role: "support" },
     { id: "R", kind: "plate", axis: "y", a: 200, b: 200, t: 12, c: [100, 0, 0], steel: "C245", role: "free" },
-    { id: "L", kind: "plate", axis: "y", a: 300, b: 150, t: 10, c: [300, 11, 0], steel: "C245", role: "load" },
+    { id: "L", kind: "plate", axis: "y", a: 380, b: 150, t: 10, c: [260, 11, 0], steel: "C245", role: "load" },
   ],
   conns: [
     { id: "W1", a: "S", b: "R", kind: "weld", n: "x", o: [0, 0, 0], kf: 6, segs: [{ u1: -6, v1: -100, u2: -6, v2: 100 }, { u1: 6, v1: -100, u2: 6, v2: 100 }] },
-    { id: "B1", a: "R", b: "L", kind: "bolts", n: "y", o: [160, 6, 0], rows: 2, cols: 2, pu: 70, pv: 80, d: 16, cls: "5.6" },
+    { id: "B1", a: "R", b: "L", kind: "bolts", n: "y", o: [135, 6, 0], rows: 2, cols: 2, pu: 70, pv: 60, d: 16, cls: "5.6" },
   ],
   at: [420, 11, 0],
   combos: [{ name: "1", Fz: -20e3 }],
@@ -25,9 +25,9 @@ describe("вільний вузол", () => {
     // шов: нормаль x → (u, v) = (y, z); V_z = 20 кН, момент навколо y = F·(420 − 0)
     expect(Math.abs(w.Vv)).toBeCloseTo(20e3, 0);
     expect(Math.abs(w.Mu)).toBeCloseTo(20e3 * 420, -2);
-    // болти: нормаль y → (u, v) = (z, x); зріз 20 кН по u, кручення групи = F·(420 − 160)
+    // болти: нормаль y → (u, v) = (z, x); зріз 20 кН по u, кручення групи = F·(420 − 135)
     expect(Math.abs(b.Vu)).toBeCloseTo(20e3, 0);
-    expect(Math.abs(b.Mn)).toBeCloseTo(20e3 * 260, -2);
+    expect(Math.abs(b.Mn)).toBeCloseTo(20e3 * 285, -2);
     expect(r.envelope.length).toBeGreaterThan(4);
     for (const c of r.envelope) expect(Number.isFinite(c.util)).toBe(true);
   });
@@ -53,5 +53,71 @@ describe("вільний вузол", () => {
     const r = checkFree(i);
     expect(r.parts.some((p) => p.cls === "weld")).toBe(true);
     expect(r.parts.filter((p) => p.cls === "bolt").length).toBe(4);
+  });
+
+  // консольна пластина 300×100×10, приварена торцем, сила з площини на кінці: σ = 6·F·L/(b·t²) = 90 МПа
+  const cant = (Fy: number, Fz: number): FreeInput => ({
+    code: "EN",
+    parts: [
+      { id: "S", kind: "plate", axis: "x", a: 300, b: 300, t: 20, c: [-10, 0, 0], steel: "S235", role: "support" },
+      { id: "L", kind: "plate", axis: "y", a: 300, b: 100, t: 10, c: [150, 0, 0], steel: "S235", role: "load" },
+    ],
+    conns: [{ id: "W", a: "S", b: "L", kind: "weld", n: "x", o: [0, 0, 0], kf: 5, segs: [{ u1: -5, v1: -50, u2: -5, v2: 50 }, { u1: 5, v1: -50, u2: 5, v2: 50 }] }],
+    at: [300, 0, 0],
+    combos: [{ name: "1", Fy, Fz }],
+  });
+  const sub = (r: ReturnType<typeof checkFree>, key: string) => r.envelope.find((c) => c.key === key)!;
+  const sigOf = (x: string, k = "σ_ef") => Number(x.match(new RegExp(`${k} = ([-\\d.]+)`))![1]);
+
+  it("переріз пластини біля шва і МСЕ — консоль із площини", () => {
+    const r = checkFree(cant(500, 0));
+    expect(sigOf(sub(r, "jFreeSec").subst)).toBeCloseTo(90, 0);
+    // у першій точці Гаусса від опори — трохи менше за 90 (момент спадає, поперечна деформація)
+    const fe = sub(r, "jFreePlate").util * 235;
+    expect(fe).toBeGreaterThan(75);
+    expect(fe).toBeLessThan(92);
+  });
+
+  it("переріз пластини біля шва — згин у площині: σ = 6·F·L/(t·b²)", () => {
+    const r = checkFree(cant(0, 2000));
+    expect(Number(sub(r, "jFreeSec").subst.match(/σ = ([\d.]+)/)![1])).toBeCloseTo(36, 0);
+  });
+
+  it("згин пластини між двома групами болтів ≈ балка на двох опорах", () => {
+    // пластина 400×100×10 на двох парах болтів у прольоті 360, сила 2 кН посередині: σ ≈ 6·F·L/4/(b·t²) = 108 МПа у середині
+    const r = checkFree({
+      code: "EN",
+      parts: [
+        { id: "S1", kind: "plate", axis: "z", a: 60, b: 100, t: 10, c: [-180, 0, -10], steel: "S235", role: "support" },
+        { id: "S2", kind: "plate", axis: "z", a: 60, b: 100, t: 10, c: [180, 0, -10], steel: "S235", role: "support" },
+        { id: "L", kind: "plate", axis: "z", a: 400, b: 100, t: 10, c: [0, 0, 0], steel: "S235", role: "load" },
+      ],
+      conns: [
+        { id: "B1", a: "S1", b: "L", kind: "bolts", n: "z", o: [-180, 0, 0], rows: 2, cols: 1, pv: 60, d: 12, cls: "8.8" },
+        { id: "B2", a: "S2", b: "L", kind: "bolts", n: "z", o: [180, 0, 0], rows: 2, cols: 1, pv: 60, d: 12, cls: "8.8" },
+      ],
+      at: [0, 0, 5],
+      combos: [{ name: "1", Fz: -2000 }],
+    });
+    const fe = sub(r, "jFreePlate").util * 235;
+    expect(fe).toBeGreaterThan(85);
+    expect(fe).toBeLessThan(115);
+    // кожна група — половина сили
+    for (const f of r.combos[0].forces) expect(Math.abs(f.N)).toBeCloseTo(1000, 0);
+    const p = r.plates.find((x) => x.part === "L")!;
+    expect(p.util.length).toBe(p.nu * p.nv);
+    // біля опор напруження менші, ніж посередині
+    const row = Math.floor(p.nv / 2) * p.nu;
+    expect(p.util[row]).toBeLessThan(p.util[row + Math.floor(p.nu / 2)]);
+  });
+
+  it("переріз профілю біля шва: σ = M/W_y", () => {
+    const i = cant(0, -2000);
+    const sec = findSection("RHS_COLD", "100×100×5")!;
+    i.parts[1] = { id: "L", kind: "profile", axis: "x", a: 300, b: 0, t: 0, c: [150, 0, 0], sec, steel: "S235", role: "load" };
+    i.conns[0] = { ...i.conns[0], segs: [{ u1: -50, v1: -50, u2: 50, v2: -50 }, { u1: 50, v1: -50, u2: 50, v2: 50 }, { u1: 50, v1: 50, u2: -50, v2: 50 }, { u1: -50, v1: 50, u2: -50, v2: -50 }] };
+    const r = checkFree(i);
+    expect(Number(sub(r, "jFreeSec").subst.match(/σ = ([\d.]+)/)![1])).toBeCloseTo((2000 * 300) / sec.Wy, 0);
+    expect(r.plates.length).toBe(0);
   });
 });

@@ -538,3 +538,7 @@ main.library .inputs { display: flex; flex-direction: column; gap: 14px; }
 .combo-table { overflow-x: auto; }
 .inputs fieldset { min-width: 0; }
 .results .panel { overflow-x: auto; }
+.stress-maps{display:flex;flex-wrap:wrap;gap:16px}
+.stress-map{margin:0;color:var(--muted, #667)}
+.stress-map svg{max-width:100%;height:auto;display:block}
+.stress-map figcaption{font-size:13px;margin-top:4px;color:var(--text, inherit)}
