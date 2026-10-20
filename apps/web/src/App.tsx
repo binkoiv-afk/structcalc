@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { downloadFile, loadSaved, newId, parseFile, SavedCalc, storeSaved } from "./projects";
+import { FileMenu } from "./FileMenu";
 import { CodeId, DEFAULT_FACTORS, FAMILIES, setCustomMaterials, setCustomSections, STEELS } from "@structcalc/core";
 import { GeneratorModule, GenState, initialGen, initialLib, LibraryModule, LibState } from "./GeneratorModule";
 import { Lang, LANGS, makeT } from "./i18n";
@@ -16,12 +18,25 @@ import { baseToAsm } from "./asmJoint";
 interface AppState {
   lang: Lang; code: CodeId; screen: Screen;
   beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState; conn: ConnState; gen: GenState; lib: LibState; node: NodeState; asm: AsmState;
+  /** відкритий збережений розрахунок (id у «Моїх розрахунках») для кожного екрана */
+  cur?: Partial<Record<Screen, string>>;
 }
+
+/** Частини стану, що належать екрану: їх зберігають, відкривають, скидають і відкочують (Ctrl+Z) */
+type Slot = "beam" | "column" | "lc" | "sec" | "conn" | "gen" | "lib" | "node" | "asm";
+const SLOTS: Record<Screen, Slot[]> = { home: [], beam: ["beam", "lc"], column: ["column"], section: ["sec"], connection: ["conn"], generator: ["gen"], library: ["lib"], node: ["node"], assembly: ["asm"] };
+const SCREENS = Object.keys(SLOTS) as Screen[];
+const screenOfHash = () => { const h = location.hash.replace(/^#\/?/, ""); return (SCREENS as string[]).includes(h) ? (h as Screen) : null; };
 
 const KEY = "structcalc.v2";
 const initial: AppState = { lang: "uk", code: "DBN", screen: "home", beam: initialBeam, column: initialColumn, lc: initialCollector, sec: initialSection, conn: initialConn, gen: initialGen, lib: initialLib, node: initialNode, asm: initialAsm };
 
 function loadState(): AppState {
+  const st = loadStored(), h = screenOfHash();
+  return h ? { ...st, screen: h } : st;
+}
+
+function loadStored(): AppState {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
@@ -42,12 +57,103 @@ function loadState(): AppState {
 
 export function App() {
   const [s, setS] = useState<AppState>(loadState);
-  const set = (p: Partial<AppState>) => setS((o) => {
+  // історія змін для Ctrl+Z / Ctrl+Y — окремо для кожного екрана, лише його частини стану
+  const hist = useRef<{ past: Partial<Record<Screen, Partial<AppState>[]>>; future: Partial<Record<Screen, Partial<AppState>[]>>; last: number; lastScreen: Screen | null }>({ past: {}, future: {}, last: 0, lastScreen: null });
+  const [, bump] = useState(0);
+  const pick = (o: AppState, sc: Screen): Partial<AppState> => { const r: Partial<AppState> = { code: o.code }; for (const k of SLOTS[sc]) (r as Record<string, unknown>)[k] = o[k]; return r; };
+  const persist = (n: AppState) => { try { localStorage.setItem(KEY, JSON.stringify(n)); } catch { /* ignore */ } };
+  const set = (p: Partial<AppState>, opt?: { noHist?: boolean }) => setS((o) => {
     const n = { ...o, ...p };
-    try { localStorage.setItem(KEY, JSON.stringify(n)); } catch { /* ignore */ }
+    const sc = n.screen, h = hist.current;
+    if (!opt?.noHist && sc !== "home" && (Object.keys(p) as (keyof AppState)[]).some((k) => k === "code" || (SLOTS[sc] as string[]).includes(k))) {
+      const now = Date.now();
+      // серія швидких змін (набір числа, перетягування) — один крок
+      if (now - h.last > 700 || h.lastScreen !== sc) { (h.past[sc] ??= []).push(pick(o, sc)); if (h.past[sc]!.length > 100) h.past[sc]!.shift(); }
+      h.future[sc] = []; h.last = now; h.lastScreen = sc;
+    }
+    persist(n);
     return n;
   });
+  const undoRedo = (dir: -1 | 1) => setS((o) => {
+    const h = hist.current, sc = o.screen, from = dir < 0 ? h.past : h.future, to = dir < 0 ? h.future : h.past;
+    const snap = from[sc]?.pop();
+    if (!snap) return o;
+    (to[sc] ??= []).push(pick(o, sc));
+    h.last = 0;
+    const n = { ...o, ...snap };
+    persist(n); bump((x) => x + 1);
+    return n;
+  });
+  const canUndo = !!hist.current.past[s.screen]?.length, canRedo = !!hist.current.future[s.screen]?.length;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const k = e.key.toLowerCase();
+      const redo = k === "y" || (k === "z" && e.shiftKey);
+      if (k !== "z" && k !== "y") return;
+      e.preventDefault();
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      undoRedo(redo ? 1 : -1);
+    };
+    // кнопка «Назад» браузера повертає на попередній екран
+    const onPop = () => { const h = screenOfHash() ?? "home"; setS((o) => (o.screen === h ? o : { ...o, screen: h })); };
+    // вихід з поля закриває крок відкату: наступна зміна — окремий крок
+    const onOut = () => { hist.current.last = 0; };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("focusout", onOut);
+    if (!screenOfHash()) history.replaceState(null, "", `#${s.screen}`);
+    return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("popstate", onPop); window.removeEventListener("focusout", onOut); };
+  }, []);
   const t = makeT(s.lang);
+  const [saved, setSaved] = useState<SavedCalc[]>(loadSaved);
+  const [toast, setToast] = useState<string | null>(null);
+  const flash = (m: string) => { setToast(m); window.setTimeout(() => setToast((x) => (x === m ? null : x)), 2600); };
+  const putSaved = (l: SavedCalc[]) => { setSaved(l); if (!storeSaved(l)) flash(t("fm_full")); };
+  const curId = s.cur?.[s.screen];
+  const curCalc = saved.find((x) => x.id === curId);
+  const defName = () => `${t(`mod_${s.screen}`)}${s.screen === "assembly" && s.asm.tmpl ? ` · ${t(`at_${s.asm.tmpl}`)}` : ""} · ${new Date().toLocaleDateString()}`;
+  const saveCalc = (name: string, asNew: boolean) => {
+    const id = !asNew && curCalc ? curCalc.id : newId();
+    const item: SavedCalc = { id, name: name.trim() || defName(), screen: s.screen, code: s.code, date: Date.now(), data: pick(s, s.screen) as Record<string, unknown> };
+    putSaved([item, ...saved.filter((x) => x.id !== id)]);
+    set({ cur: { ...(s.cur ?? {}), [s.screen]: id } }, { noHist: true });
+    flash(t("fm_saved"));
+  };
+  const openCalc = (c: SavedCalc) => {
+    const base = (initial as unknown as Record<string, Record<string, unknown>>);
+    const data: Partial<AppState> = {};
+    for (const k of SLOTS[c.screen] ?? []) if (c.data[k] && typeof c.data[k] === "object") (data as Record<string, unknown>)[k] = { ...base[k], ...(c.data[k] as object) };
+    hist.current.past[c.screen] = []; hist.current.future[c.screen] = [];
+    set({ ...data, code: c.code ?? s.code, screen: c.screen, cur: { ...(s.cur ?? {}), [c.screen]: c.id } }, { noHist: true });
+    if (location.hash !== `#${c.screen}`) history.pushState(null, "", `#${c.screen}`);
+    window.scrollTo(0, 0);
+  };
+  const resetCalc = () => {
+    const d: Partial<AppState> = {};
+    for (const k of SLOTS[s.screen]) (d as Record<string, unknown>)[k] = initial[k];
+    // «Збірка» без шаблону — порожня схема; модулі зберігають вибраний шаблон
+    if (s.screen === "assembly" && s.asm.tmpl) { const a = s.asm.tmpl === "empty" ? null : asmTemplate(s.asm.tmpl, s.code); d.asm = { ...initialAsm, tmpl: s.asm.tmpl, asm: a, loadsOf: a?.cases[0]?.id ?? "" }; }
+    if (s.screen === "connection") d.conn = { ...initialConn, ...pickKind(initialConn, s.conn.kind as ConnKind) };
+    if (s.screen === "node") d.node = { ...initialNode, tmpl: s.node.tmpl };
+    if (s.screen === "library") return;
+    set({ ...d, cur: { ...(s.cur ?? {}), [s.screen]: undefined } });
+    flash(t("fm_resetDone"));
+  };
+  const libOf = () => ({ materials: s.lib.materials, sections: s.lib.sections });
+  const importFile = async (f: File) => {
+    const pf = parseFile(await f.text());
+    if (!pf || !pf.items.length) { flash(t("fm_badFile")); return; }
+    if (pf.lib) {
+      const key = (x: unknown) => { const o = x as { id?: string; name?: string }; return o?.id ?? o?.name ?? ""; };
+      const merge = <X,>(cur: X[], add?: unknown[]) => [...cur, ...((add ?? []) as X[]).filter((m) => key(m) && !cur.some((c) => key(c) === key(m)))];
+      const mats = merge(s.lib.materials, pf.lib.materials), secs = merge(s.lib.sections, pf.lib.sections);
+      if (mats.length !== s.lib.materials.length || secs.length !== s.lib.sections.length) set({ lib: { materials: mats, sections: secs } }, { noHist: true });
+    }
+    putSaved([...pf.items, ...saved]);
+    if (pf.items.length === 1) openCalc(pf.items[0]);
+    else flash(t("fm_imported").replace("{n}", String(pf.items.length)));
+  };
   // свої матеріали і перерізи — у каталоги ядра до розрахунку модулів
   setCustomMaterials(s.lib.materials);
   setCustomSections(s.lib.sections);
@@ -57,13 +163,17 @@ export function App() {
   const beam = { ...s.beam, steel: okSteel(s.beam.steel), family: okFam(s.beam.family, "IPE") };
   const column = { ...s.column, steel: okSteel(s.column.steel), family: okFam(s.column.family, "HEB") };
   const sec = { ...s.sec, family: okFam(s.sec.family, "IPE") };
+  const nav = (screen: Screen) => { if (location.hash !== `#${screen}`) history.pushState(null, "", `#${screen}`); };
   const go = (screen: Screen, conn?: ConnKind) => {
-    set(conn ? { screen, conn: { ...s.conn, ...pickKind(s.conn, conn) } } : { screen });
+    set(conn ? { screen, conn: { ...s.conn, ...pickKind(s.conn, conn) }, cur: { ...(s.cur ?? {}), connection: undefined } } : { screen }, { noHist: !conn });
+    nav(screen);
     window.scrollTo(0, 0);
   };
-  const goAsm = (k: AsmTemplate | null) => {
-    const a = k ? asmTemplate(k, s.code) : null;
-    set({ screen: "assembly", asm: { ...initialAsm, tmpl: k, asm: a, loadsOf: a?.cases[0]?.id ?? "" } });
+  const goAsm = (k: AsmTemplate | null, seismic?: boolean) => {
+    const a0 = k ? asmTemplate(k, s.code) : null;
+    const a = a0 && seismic ? { ...a0, seismic: { on: true, dirs: { x: true, y: true, z: false }, ...(s.code === "DBN" ? { a0: 0.1, intensity: 7 as const, soil: "II" as const, k1: 0.25, k2: 1 } : {}) } } : a0;
+    set({ screen: "assembly", asm: { ...initialAsm, tmpl: k, asm: a, loadsOf: a?.cases[0]?.id ?? "" }, cur: { ...(s.cur ?? {}), assembly: undefined } });
+    nav("assembly");
     window.scrollTo(0, 0);
   };
   const setCode = (code: CodeId) => {
@@ -88,6 +198,13 @@ export function App() {
         </div>
         <div className="top-controls">
           {s.screen !== "home" && <button className="ghost back" onClick={() => go("home")}>← {t("allCalcs")}</button>}
+          {s.screen !== "home" && <div className="seg undo" role="group">
+            <button id="undo" disabled={!canUndo} onClick={() => undoRedo(-1)} title={`${t("fm_undo")} (Ctrl+Z)`} aria-label={t("fm_undo")}>↶</button>
+            <button id="redo" disabled={!canRedo} onClick={() => undoRedo(1)} title={`${t("fm_redo")} (Ctrl+Y)`} aria-label={t("fm_redo")}>↷</button>
+          </div>}
+          {s.screen !== "home" && s.screen !== "library" && <FileMenu t={t} name={curCalc?.name} defName={defName} onSave={saveCalc}
+            onDownload={() => downloadFile([{ id: curId ?? newId(), name: curCalc?.name ?? defName(), screen: s.screen, code: s.code, date: Date.now(), data: pick(s, s.screen) as Record<string, unknown> }], libOf())}
+            onReset={resetCalc} />}
           <div className="seg" role="group" aria-label={t("code")}>
             {(["DBN", "EN"] as const).map((c) => (
               <button key={c} className={s.code === c ? "on" : ""} onClick={() => setCode(c)}>{c === "DBN" ? "ДБН" : "EN"}</button>
@@ -99,7 +216,10 @@ export function App() {
         </div>
       </header>
 
-      {s.screen === "home" && <Home go={go} goAsm={goAsm} t={t} />}
+      {s.screen === "home" && <Home go={go} goAsm={goAsm} t={t} saved={saved} open={openCalc}
+        remove={(id) => putSaved(saved.filter((x) => x.id !== id))}
+        download={(c) => downloadFile([c], libOf())} downloadAll={() => downloadFile(saved, libOf())} importFile={importFile} />}
+      {toast && <div className="toast" role="status">{toast}</div>}
       {s.screen === "beam" && (
         <BeamModule code={s.code} s={beam} set={(p) => set({ beam: { ...s.beam, ...p } })}
           lc={s.lc} setLc={(p) => set({ lc: { ...s.lc, ...p } })} t={t} />

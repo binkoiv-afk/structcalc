@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { NumInput } from "./NumInput";
 import {
   ANCHOR_STEELS, AnchorType, BOLT_CLASSES, BOLT_DIAMETERS, checkAnchors, checkBolts, checkButt, checkFillet, checkScrews, CodeId,
   CONCRETE_CLASSES, ConnResult, STEELS, WELD_PROCESSES, WeldProcess, WeldShape, weldShape, weldGroupProps,
@@ -60,7 +61,7 @@ export const CONN_ICONS: Record<ConnKind, JSX.Element> = {
 };
 
 function Num({ id, label, v, on, step, ph }: { id: string; label: string; v: number | string; on: (s: string) => void; step?: number; ph?: string }) {
-  return <label><span className="lbl">{label}</span><input id={id} type="number" step={step ?? 1} placeholder={ph} value={v} onChange={(e) => on(e.target.value)} /></label>;
+  return <label><span className="lbl">{label}</span><NumInput id={id} step={step ?? 1} placeholder={ph} value={v} onChange={(e) => on(e.target.value)} /></label>;
 }
 
 function ConnSummary({ r, t, title, sub }: { r: ConnResult; t: T; title: string; sub: string }) {

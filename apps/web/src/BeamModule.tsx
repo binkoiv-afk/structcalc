@@ -1,4 +1,5 @@
 import { useDeferredValue, useMemo, useState } from "react";
+import { NumInput } from "./NumInput";
 import {
   BeamDesignInput, CodeId, DEFAULT_FACTORS, designBeam, familiesFor, familySections, findSection,
   selectBeam, STEELS, SupportType, UserLoad,
@@ -94,14 +95,14 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
                   {sup === "spring" && (
                     <label className="span-len">
                       <span className="lbl">k, kN/m</span>
-                      <input id={`k${i}`} type="number" step="100" min="0" value={s.springs[i] ?? 0}
+                      <NumInput id={`k${i}`} step="100" min="0" value={s.springs[i] ?? 0}
                         onChange={(e) => { const k = [...s.springs]; k[i] = num(e.target.value); set({ springs: k }); }} />
                     </label>
                   )}
                   {i < s.spans.length && (
                     <label className="span-len">
                       <span className="lbl">L{i + 1}, m</span>
-                      <input id={`span${i}`} type="number" step="0.1" min="0.1" value={s.spans[i]} onChange={(e) => updateSpan(i, num(e.target.value))} />
+                      <NumInput id={`span${i}`} step="0.1" min="0.1" value={s.spans[i]} onChange={(e) => updateSpan(i, num(e.target.value))} />
                     </label>
                   )}
                 </div>
@@ -144,33 +145,33 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
                   <div className="load-row">
                     {l.type === "udl" && l.q2 != null ? (
                       <>
-                        <label><span className="lbl">q₁</span><input id={`lv${i}`} type="number" step="0.1" value={l.q} onChange={(e) => updateLoad(i, { q: num(e.target.value) } as Partial<UserLoad>)} /></label>
-                        <label><span className="lbl">q₂</span><input id={`lv2${i}`} type="number" step="0.1" value={l.q2} onChange={(e) => updateLoad(i, { q2: num(e.target.value) } as Partial<UserLoad>)} /></label>
+                        <label><span className="lbl">q₁</span><NumInput id={`lv${i}`} step="0.1" value={l.q} onChange={(e) => updateLoad(i, { q: num(e.target.value) } as Partial<UserLoad>)} /></label>
+                        <label><span className="lbl">q₂</span><NumInput id={`lv2${i}`} step="0.1" value={l.q2} onChange={(e) => updateLoad(i, { q2: num(e.target.value) } as Partial<UserLoad>)} /></label>
                       </>
                     ) : (
                     <label><span className="lbl">{t("value")}</span>
-                      <input id={`lv${i}`} type="number" step="0.1" value={l.type === "udl" ? l.q : l.type === "point" ? l.P : l.M}
+                      <NumInput id={`lv${i}`} step="0.1" value={l.type === "udl" ? l.q : l.type === "point" ? l.P : l.M}
                         onChange={(e) => updateLoad(i, (l.type === "udl" ? { q: num(e.target.value) } : l.type === "point" ? { P: num(e.target.value) } : { M: num(e.target.value) }) as Partial<UserLoad>)} />
                     </label>
                     )}
                     {l.type === "udl" ? (
                       <>
-                        <label><span className="lbl">{t("from")}</span><input id={`lf${i}`} type="number" step="0.1" placeholder="0" value={l.from ?? ""} onChange={(e) => updateLoad(i, { from: e.target.value === "" ? undefined : num(e.target.value) } as Partial<UserLoad>)} /></label>
-                        <label><span className="lbl">{t("to")}</span><input id={`lto${i}`} type="number" step="0.1" placeholder={String(total)} value={l.to ?? ""} onChange={(e) => updateLoad(i, { to: e.target.value === "" ? undefined : num(e.target.value) } as Partial<UserLoad>)} /></label>
+                        <label><span className="lbl">{t("from")}</span><NumInput id={`lf${i}`} step="0.1" placeholder="0" value={l.from ?? ""} onChange={(e) => updateLoad(i, { from: e.target.value === "" ? undefined : num(e.target.value) } as Partial<UserLoad>)} /></label>
+                        <label><span className="lbl">{t("to")}</span><NumInput id={`lto${i}`} step="0.1" placeholder={String(total)} value={l.to ?? ""} onChange={(e) => updateLoad(i, { to: e.target.value === "" ? undefined : num(e.target.value) } as Partial<UserLoad>)} /></label>
                       </>
                     ) : (
-                      <label><span className="lbl">{t("position")}</span><input id={`lx${i}`} type="number" step="0.1" value={l.x} onChange={(e) => updateLoad(i, { x: num(e.target.value) } as Partial<UserLoad>)} /></label>
+                      <label><span className="lbl">{t("position")}</span><NumInput id={`lx${i}`} step="0.1" value={l.x} onChange={(e) => updateLoad(i, { x: num(e.target.value) } as Partial<UserLoad>)} /></label>
                     )}
                   </div>
                   {openLoad === i && (
                     <div className="load-more grid2">
                       <label><span className="lbl">{t("label")}</span><input id={`ln${i}`} value={l.label ?? ""} placeholder={`${l.cat}${i + 1}`} onChange={(e) => updateLoad(i, { label: e.target.value || undefined })} /></label>
                       <label><span className="lbl">{t("group")}</span><input id={`lg${i}`} value={l.group ?? ""} placeholder="—" onChange={(e) => updateLoad(i, { group: e.target.value || undefined })} /></label>
-                      <label><span className="lbl">γf</span><input id={`lgf${i}`} type="number" step="0.05" value={l.gf ?? ""} placeholder={String(l.cat === "G" ? s.gammaG : l.cat === "A" ? 1 : s.gammaQ)} onChange={(e) => updateLoad(i, { gf: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
+                      <label><span className="lbl">γf</span><NumInput id={`lgf${i}`} step="0.05" value={l.gf ?? ""} placeholder={String(l.cat === "G" ? s.gammaG : l.cat === "A" ? 1 : s.gammaQ)} onChange={(e) => updateLoad(i, { gf: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
                       <label><span className="lbl">{code === "DBN" ? "γfe" : "ψ0"}</span>
                         {code === "DBN"
-                          ? <input id={`lgfe${i}`} type="number" step="0.05" value={l.gfe ?? ""} placeholder="1" onChange={(e) => updateLoad(i, { gfe: e.target.value === "" ? undefined : num(e.target.value) })} />
-                          : <input id={`lpsi${i}`} type="number" step="0.1" value={l.psi0 ?? ""} placeholder="0.7" onChange={(e) => updateLoad(i, { psi0: e.target.value === "" ? undefined : num(e.target.value) })} />}
+                          ? <NumInput id={`lgfe${i}`} step="0.05" value={l.gfe ?? ""} placeholder="1" onChange={(e) => updateLoad(i, { gfe: e.target.value === "" ? undefined : num(e.target.value) })} />
+                          : <NumInput id={`lpsi${i}`} step="0.1" value={l.psi0 ?? ""} placeholder="0.7" onChange={(e) => updateLoad(i, { psi0: e.target.value === "" ? undefined : num(e.target.value) })} />}
                       </label>
                       <p className="hint wide">{t("groupHint")}</p>
                     </div>
@@ -218,11 +219,11 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
           <div className="adv-group">
             <h4>{t("factors")}</h4>
             <div className="grid2">
-              <label><span className="lbl">{t("gammaG")}</span><input id="gG" type="number" step="0.05" value={s.gammaG} onChange={(e) => set({ gammaG: num(e.target.value) })} /></label>
-              <label><span className="lbl">{t("gammaQ")}</span><input id="gQ" type="number" step="0.05" value={s.gammaQ} onChange={(e) => set({ gammaQ: num(e.target.value) })} /></label>
-              {code === "DBN" && <label><span className="lbl">{t("gammaC")}</span><input id="gC" type="number" step="0.05" value={s.gammaC} onChange={(e) => set({ gammaC: num(e.target.value) })} /></label>}
-              {code === "DBN" && <label><span className="lbl">{t("gammaN")}</span><input id="gN" type="number" step="0.05" value={s.gammaN} onChange={(e) => set({ gammaN: num(e.target.value) })} /></label>}
-              <label className="wide"><span className="lbl">{t("deflLimit")}</span><input id="defl" type="number" value={s.deflLimit} onChange={(e) => set({ deflLimit: num(e.target.value) })} /></label>
+              <label><span className="lbl">{t("gammaG")}</span><NumInput id="gG" step="0.05" value={s.gammaG} onChange={(e) => set({ gammaG: num(e.target.value) })} /></label>
+              <label><span className="lbl">{t("gammaQ")}</span><NumInput id="gQ" step="0.05" value={s.gammaQ} onChange={(e) => set({ gammaQ: num(e.target.value) })} /></label>
+              {code === "DBN" && <label><span className="lbl">{t("gammaC")}</span><NumInput id="gC" step="0.05" value={s.gammaC} onChange={(e) => set({ gammaC: num(e.target.value) })} /></label>}
+              {code === "DBN" && <label><span className="lbl">{t("gammaN")}</span><NumInput id="gN" step="0.05" value={s.gammaN} onChange={(e) => set({ gammaN: num(e.target.value) })} /></label>}
+              <label className="wide"><span className="lbl">{t("deflLimit")}</span><NumInput id="defl" value={s.deflLimit} onChange={(e) => set({ deflLimit: num(e.target.value) })} /></label>
             </div>
           </div>
 
@@ -241,7 +242,7 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
                     {([0, 1, 2] as const).map((o) => <option key={o} value={o}>{t(`rest_${o}`)}</option>)}
                   </select>
                 </label>
-                <label><span className="lbl">{t("LcrLT")}</span><input id="lcrlt" type="number" step="0.1" value={s.LcrLT} onChange={(e) => set({ LcrLT: e.target.value })} /></label>
+                <label><span className="lbl">{t("LcrLT")}</span><NumInput id="lcrlt" step="0.1" value={s.LcrLT} onChange={(e) => set({ LcrLT: e.target.value })} /></label>
               </div>
             )}
           </div>
@@ -251,9 +252,9 @@ export function BeamModule({ code, s, set, lc, setLc, t }: {
             <label className="check"><input id="ax" type="checkbox" checked={s.useAxial} onChange={(e) => set({ useAxial: e.target.checked })} /> {t("NEd")}</label>
             {s.useAxial && (
               <div className="grid2">
-                <label><span className="lbl">{t("NEd")}</span><input id="ned" type="number" value={s.NEd} onChange={(e) => set({ NEd: num(e.target.value) })} /></label>
-                <label><span className="lbl">{t("Lcr_y")}</span><input id="lcy" type="number" step="0.1" value={s.Lcr_y} onChange={(e) => set({ Lcr_y: num(e.target.value) })} /></label>
-                <label><span className="lbl">{t("Lcr_z")}</span><input id="lcz" type="number" step="0.1" value={s.Lcr_z} onChange={(e) => set({ Lcr_z: num(e.target.value) })} /></label>
+                <label><span className="lbl">{t("NEd")}</span><NumInput id="ned" value={s.NEd} onChange={(e) => set({ NEd: num(e.target.value) })} /></label>
+                <label><span className="lbl">{t("Lcr_y")}</span><NumInput id="lcy" step="0.1" value={s.Lcr_y} onChange={(e) => set({ Lcr_y: num(e.target.value) })} /></label>
+                <label><span className="lbl">{t("Lcr_z")}</span><NumInput id="lcz" step="0.1" value={s.Lcr_z} onChange={(e) => set({ Lcr_z: num(e.target.value) })} /></label>
               </div>
             )}
           </div>

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { NumInput } from "./NumInput";
 import {
   CodeId, ColumnDesignInput, designColumn, END_CONDITIONS, familiesFor, familySections, findSection, selectColumn, STEELS,
 } from "@structcalc/core";
@@ -73,7 +74,7 @@ export function ColumnModule({ code, s, set, t }: { code: CodeId; s: ColumnState
         <fieldset>
           <legend><span className="step">1</span>{t("col_geometry")}</legend>
           <div className="grid2">
-            <label><span className="lbl">{t("col_L")}</span><input id="cL" type="number" step="0.1" value={s.L} onChange={(e) => set({ L: num(e.target.value) })} /></label>
+            <label><span className="lbl">{t("col_L")}</span><NumInput id="cL" step="0.1" value={s.L} onChange={(e) => set({ L: num(e.target.value) })} /></label>
             <span />
             <label className="wide"><span className="lbl">{t("col_endsY")}</span>{muSel("cmuy", s.muY, "muY")}</label>
             <label className="wide"><span className="lbl">{t("col_endsZ")}</span>{muSel("cmuz", s.muZ, "muZ")}</label>
@@ -82,8 +83,8 @@ export function ColumnModule({ code, s, set, t }: { code: CodeId; s: ColumnState
         <fieldset>
           <legend><span className="step">2</span>{t("col_forces")}</legend>
           <div className="grid2">
-            <label><span className="lbl">{t("col_N")}</span><input id="cN" type="number" step="10" value={s.N} onChange={(e) => set({ N: num(e.target.value) })} /></label>
-            <label><span className="lbl">{t("col_M")}</span><input id="cM" type="number" step="1" value={s.M} onChange={(e) => set({ M: num(e.target.value) })} /></label>
+            <label><span className="lbl">{t("col_N")}</span><NumInput id="cN" step="10" value={s.N} onChange={(e) => set({ N: num(e.target.value) })} /></label>
+            <label><span className="lbl">{t("col_M")}</span><NumInput id="cM" step="1" value={s.M} onChange={(e) => set({ M: num(e.target.value) })} /></label>
           </div>
           <p className="hint">{t("col_forcesHint")}</p>
         </fieldset>
@@ -118,11 +119,11 @@ export function ColumnModule({ code, s, set, t }: { code: CodeId; s: ColumnState
           <summary>{t("advanced")}<span className="adv-hint">{t("advancedHintCol")}</span></summary>
           <div className="adv-group">
             <div className="grid2">
-              <label><span className="lbl">{t("col_muY")}</span><input id="cmuyv" type="number" step="0.05" value={s.muY} onChange={(e) => set({ muY: num(e.target.value) })} /></label>
-              <label><span className="lbl">{t("col_muZ")}</span><input id="cmuzv" type="number" step="0.05" value={s.muZ} onChange={(e) => set({ muZ: num(e.target.value) })} /></label>
-              <label className="wide"><span className="lbl">{t("col_Lz")}</span><input id="cLz" type="number" step="0.1" placeholder={String(s.L)} value={s.Lz} onChange={(e) => set({ Lz: e.target.value })} /></label>
-              {code === "DBN" && <label><span className="lbl">{t("gammaC")}</span><input id="cgc" type="number" step="0.05" value={s.gammaC} onChange={(e) => set({ gammaC: num(e.target.value) })} /></label>}
-              {code === "DBN" && <label><span className="lbl">{t("gammaN")}</span><input id="cgn" type="number" step="0.05" value={s.gammaN} onChange={(e) => set({ gammaN: num(e.target.value) })} /></label>}
+              <label><span className="lbl">{t("col_muY")}</span><NumInput id="cmuyv" step="0.05" value={s.muY} onChange={(e) => set({ muY: num(e.target.value) })} /></label>
+              <label><span className="lbl">{t("col_muZ")}</span><NumInput id="cmuzv" step="0.05" value={s.muZ} onChange={(e) => set({ muZ: num(e.target.value) })} /></label>
+              <label className="wide"><span className="lbl">{t("col_Lz")}</span><NumInput id="cLz" step="0.1" placeholder={String(s.L)} value={s.Lz} onChange={(e) => set({ Lz: e.target.value })} /></label>
+              {code === "DBN" && <label><span className="lbl">{t("gammaC")}</span><NumInput id="cgc" step="0.05" value={s.gammaC} onChange={(e) => set({ gammaC: num(e.target.value) })} /></label>}
+              {code === "DBN" && <label><span className="lbl">{t("gammaN")}</span><NumInput id="cgn" step="0.05" value={s.gammaN} onChange={(e) => set({ gammaN: num(e.target.value) })} /></label>}
             </div>
           </div>
         </details>

@@ -1,4 +1,5 @@
 // Сортамент: вітчизняний (ДСТУ/ГОСТ), європейський (EN) і свої перерізи — з таблицею, кресленням і редактором своїх.
+import { NumInput } from "./NumInput";
 import { useMemo, useState } from "react";
 import { buildCustomSection, CodeId, CustomSectionDef, CustomSectionType, Family, FAMILIES, familySections, findSection, Section } from "@structcalc/core";
 import type { LibState } from "./GeneratorModule";
@@ -164,7 +165,7 @@ export function SectionModule({ code, s, set, t, lib, setLib }: {
                 <label className="wide"><span className="lbl">{t("ms_name")}</span><input id="ms-name" value={draft.name} placeholder={t(`cst_${draft.type}`)} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
                 {FIELDS[draft.type].map((f) => (
                   <label key={f}><span className="lbl">{t(`msf_${draft.type === "weldedI" && f === "r" ? "rw" : f}`)}</span>
-                    <input id={`ms-${f}`} type="number" step="0.5" value={(draft[f] as number | undefined) ?? ""} onChange={(e) => setDraft({ ...draft, [f]: e.target.value === "" ? undefined : Number(e.target.value) })} /></label>
+                    <NumInput id={`ms-${f}`} step="0.5" value={(draft[f] as number | undefined) ?? ""} onChange={(e) => setDraft({ ...draft, [f]: e.target.value === "" ? undefined : Number(e.target.value) })} /></label>
                 ))}
               </div>
               <p className="hint">{t(`ms_hint_${draft.type}`)}</p>

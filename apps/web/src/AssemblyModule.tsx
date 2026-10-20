@@ -1,6 +1,7 @@
 // Режим «Збірка»: конструкція з вузлів, стрижнів (профілі сортаменту), стиків (зварювання, болти, заклепки, саморези),
 // вантажних панелей і опор; загруження → сполучення → МСЕ → перевірки стрижнів, стиків і баз.
 // Одиниці у стані — мм, Н, МПа (як у ядрі); у полях: мм, кН, кН/м (= Н/мм), кПа, кг/м².
+import { NumInput } from "./NumInput";
 import { useMemo, useState } from "react";
 import {
   analyzeAssembly, ASM_TEMPLATES, asmTemplate, AsmTemplate, Assembly, AsmMember, AsmNode, AsmResult, basePlateDefaults, BOLT_CLASSES, BOLT_DIAMETERS,
@@ -43,7 +44,7 @@ const num = (v: string) => (v.trim() === "" ? 0 : Number(v.replace(",", ".")));
 const r1 = (v: number) => Math.round(v * 1000) / 1000;
 
 function Num({ id, label, v, on, step, ph, className }: { id: string; label: string; v: number | string | undefined; on: (n: number) => void; step?: number; ph?: string; className?: string }) {
-  return <label className={className}><span className="lbl">{label}</span><input id={id} type="number" step={step ?? 1} placeholder={ph} value={v ?? ""} onChange={(e) => on(num(e.target.value))} /></label>;
+  return <label className={className}><span className="lbl">{label}</span><NumInput id={id} step={step ?? 1} placeholder={ph} value={v ?? ""} onChange={(e) => on(num(e.target.value))} /></label>;
 }
 
 // конструктивні обмеження (катети, довжини швів) не перекривають міцність, поки виконуються
@@ -324,7 +325,7 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
         {nls.map((nl, k) => (
           <div key={k} className="ld-row">
             <select value={nl.node} onChange={(e) => upC({ nodal: nls.map((x, j) => (j === k ? { ...x, node: e.target.value } : x)) })}>{nodeIds.map((id) => <option key={id}>{id}</option>)}</select>
-            {["Fx", "Fy", "Fz"].map((lbl, q) => <label key={lbl} className="mini"><span>{lbl}</span><input id={`nl${k}-${q}`} type="number" step={0.1} value={r1((nl.F[q] ?? 0) / 1000)} onChange={(e) => upC({ nodal: nls.map((x, j) => (j === k ? { ...x, F: x.F.map((v, i) => (i === q ? num(e.target.value) * 1000 : v)) } : x)) })} /></label>)}
+            {["Fx", "Fy", "Fz"].map((lbl, q) => <label key={lbl} className="mini"><span>{lbl}</span><NumInput id={`nl${k}-${q}`} step={0.1} value={r1((nl.F[q] ?? 0) / 1000)} onChange={(e) => upC({ nodal: nls.map((x, j) => (j === k ? { ...x, F: x.F.map((v, i) => (i === q ? num(e.target.value) * 1000 : v)) } : x)) })} /></label>)}
             <button className="icon" aria-label="remove" onClick={() => upC({ nodal: nls.filter((_, j) => j !== k) })}>×</button>
           </div>
         ))}
@@ -335,8 +336,8 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
             <select value={ml.member} onChange={(e) => upC({ members: mls.map((x, j) => (j === k ? { ...x, member: e.target.value } : x)) })}>{memberIds.map((id) => <option key={id}>{id}</option>)}</select>
             <select value={ml.dir} onChange={(e) => upC({ members: mls.map((x, j) => (j === k ? { ...x, dir: e.target.value as MemberLoad["dir"] } : x)) })}>{(["gz", "gx", "gy", "lz", "ly", "lx"] as const).map((d) => <option key={d} value={d}>{d}</option>)}</select>
             {ml.kind === "dist" && <>
-              <label className="mini"><span>w₁</span><input type="number" step={0.1} value={r1(ml.w1)} onChange={(e) => upC({ members: mls.map((x, j) => (j === k ? { ...x, w1: num(e.target.value) } as MemberLoad : x)) })} /></label>
-              <label className="mini"><span>w₂</span><input type="number" step={0.1} placeholder="=w₁" value={ml.w2 ?? ""} onChange={(e) => upC({ members: mls.map((x, j) => (j === k ? { ...x, w2: e.target.value === "" ? undefined : num(e.target.value) } as MemberLoad : x)) })} /></label>
+              <label className="mini"><span>w₁</span><NumInput step={0.1} value={r1(ml.w1)} onChange={(e) => upC({ members: mls.map((x, j) => (j === k ? { ...x, w1: num(e.target.value) } as MemberLoad : x)) })} /></label>
+              <label className="mini"><span>w₂</span><NumInput step={0.1} placeholder="=w₁" value={ml.w2 ?? ""} onChange={(e) => upC({ members: mls.map((x, j) => (j === k ? { ...x, w2: e.target.value === "" ? undefined : num(e.target.value) } as MemberLoad : x)) })} /></label>
             </>}
             <button className="icon" aria-label="remove" onClick={() => upC({ members: mls.filter((_, j) => j !== k) })}>×</button>
           </div>

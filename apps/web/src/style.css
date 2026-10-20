@@ -542,3 +542,37 @@ main.library .inputs { display: flex; flex-direction: column; gap: 14px; }
 .stress-map{margin:0;color:var(--muted, #667)}
 .stress-map svg{max-width:100%;height:auto;display:block}
 .stress-map figcaption{font-size:13px;margin-top:4px;color:var(--text, inherit)}
+
+/* v22: зручність — числові поля, меню «Файл», відкат, «Мої розрахунки», пошук */
+input.num-bad { border-color: var(--fail) !important; background: var(--fail-soft); }
+input.num-expr { border-color: var(--accent) !important; box-shadow: 0 0 0 2px var(--accent-soft); }
+.seg.undo button { padding: 4px 10px; font-size: 16px; line-height: 1; color: inherit; }
+.seg.undo button:disabled { opacity: 0.35; cursor: default; }
+.file-menu { position: relative; }
+.fm-btn { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; padding: 5px 10px; cursor: pointer; }
+.fm-btn.on, .fm-btn:hover { border-color: var(--accent); color: var(--accent); }
+.fm-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fm-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: min(320px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+.fm-pop label { display: flex; flex-direction: column; gap: 4px; }
+.fm-pop hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
+.fm-pop .hint { margin: 0; }
+.fm-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.fm-row button:not(.primary) { border: 1px solid var(--line); background: transparent; color: inherit; border-radius: 6px; padding: 7px 12px; cursor: pointer; }
+.fm-item { text-align: left; border: 0; background: transparent; color: inherit; padding: 7px 6px; border-radius: 6px; cursor: pointer; }
+.fm-item:hover { background: var(--accent-soft); }
+.fm-item.danger, .icon-btn.danger { color: var(--fail); background: var(--fail-soft); }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50; background: var(--ink, #1b2230); color: var(--panel); padding: 9px 16px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); font-size: 14px; max-width: calc(100vw - 32px); }
+.home-tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: -8px 0 22px; }
+.home-search { flex: 1 1 260px; max-width: 520px; padding: 9px 12px; font-size: 15px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: inherit; }
+.home-tools button.ghost { align-self: center; }
+.saved-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 8px; }
+.saved-row { display: flex; align-items: stretch; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); min-width: 0; }
+.saved-open { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; border: 0; background: transparent; color: inherit; padding: 9px 12px; cursor: pointer; border-radius: 8px 0 0 8px; }
+.saved-open:hover { background: var(--accent-soft); }
+.saved-name { font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-meta { font-size: 12.5px; color: var(--muted); }
+.icon-btn { border: 0; border-left: 1px solid var(--line); background: transparent; color: var(--muted); padding: 0 12px; cursor: pointer; min-width: 40px; }
+.icon-btn:hover { color: var(--accent); }
+.saved-foot { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+@media (max-width: 560px) { .fm-label { display: none; } .saved-list { grid-template-columns: minmax(0, 1fr); } .fm-pop { position: fixed; left: 16px; right: 16px; top: 100px; width: auto; } }
+@media print { .toast, .file-menu, .seg.undo { display: none !important; } }

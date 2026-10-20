@@ -2,6 +2,8 @@
 import { CONN_ICONS, ConnKind, KINDS } from "./ConnectionsModule";
 import type { AsmTemplate } from "@structcalc/core";
 import { ASM_ICONS } from "./AssemblyModule";
+import { useRef, useState } from "react";
+import type { SavedCalc } from "./projects";
 
 export type Screen = "home" | "beam" | "column" | "section" | "connection" | "generator" | "library" | "node" | "assembly";
 
@@ -24,34 +26,77 @@ const ICONS: Record<string, JSX.Element> = {
 
 // Порядок — за ходом проєктування: елементи → вузли і з'єднання → довідники → інше.
 // Збір снігу і вітру — не окремий розрахунок, а крок «Навантаження» всередині елемента.
-type Item = { id: string; ready: boolean; conn?: ConnKind; asm?: AsmTemplate };
+type Item = { id: string; ready: boolean; conn?: ConnKind; asm?: AsmTemplate; seis?: boolean };
 const GROUPS: { key: string; hint?: string; items: Item[] }[] = [
-  { key: "grp_members", hint: "grp_members_h", items: [{ id: "beam", ready: true }, { id: "column", ready: true }, { id: "truss", ready: true, asm: "truss" }, { id: "frame", ready: true, asm: "portal" }] },
+  { key: "grp_members", hint: "grp_members_h", items: [{ id: "beam", ready: true }, { id: "column", ready: true }, { id: "truss", ready: true, asm: "truss" }, { id: "frame", ready: true, asm: "portal" }, { id: "dynamic", ready: true, asm: "portal", seis: true }] },
   { key: "grp_asm", hint: "grp_asm_h", items: [{ id: "assembly", ready: true }, { id: "canopy", ready: true, asm: "canopy" }, { id: "bracket", ready: true, asm: "bracket" }, { id: "platform", ready: true, asm: "platform" }] },
   { key: "grp_conn", hint: "grp_conn_h", items: [
     { id: "node", ready: true },
     ...KINDS.map((k) => ({ id: `conn_${k}`, ready: true, conn: k })),
   ] },
   { key: "grp_ref", items: [{ id: "section", ready: true }, { id: "generator", ready: true }, { id: "library", ready: true }] },
-  { key: "grp_soon", items: [{ id: "dynamic", ready: false }, { id: "concrete", ready: false }, { id: "timber", ready: false }, { id: "thermal", ready: false }] },
+  { key: "grp_soon", items: [{ id: "concrete", ready: false }, { id: "timber", ready: false }, { id: "thermal", ready: false }] },
 ];
 
-export function Home({ go, goAsm, t }: { go: (s: Screen, conn?: ConnKind) => void; goAsm: (k: AsmTemplate | null) => void; t: (k: string) => string }) {
+export function Home({ go, goAsm, t, saved, open, remove, download, downloadAll, importFile }: {
+  go: (s: Screen, conn?: ConnKind) => void; goAsm: (k: AsmTemplate | null, seismic?: boolean) => void; t: (k: string) => string;
+  saved: SavedCalc[]; open: (c: SavedCalc) => void; remove: (id: string) => void; download: (c: SavedCalc) => void; downloadAll: () => void; importFile: (f: File) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [del, setDel] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  const fileIn = useRef<HTMLInputElement>(null);
+  const title = (it: Item) => t(it.conn ? it.id : it.asm && !["truss", "frame", "dynamic"].includes(it.id) ? `at_${it.asm}` : `mod_${it.id}`);
+  const desc = (it: Item) => t(it.conn ? `${it.id}_d` : it.asm && it.id !== "dynamic" ? `at_${it.asm}_d` : `mod_${it.id}_d`);
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = (it: Item) => { const tx = `${title(it)} ${desc(it)}`.toLowerCase(); return words.every((w) => tx.includes(w)); };
+  const groups = GROUPS.map((g) => ({ ...g, items: g.items.filter(hit) })).filter((g) => g.items.length);
+  const list = [...saved].sort((a, b) => b.date - a.date);
+  const shown = all ? list : list.slice(0, 6);
+  const scrTitle = (c: SavedCalc) => t(`mod_${c.screen}`);
   return (
     <main className="home">
       <h1 className="home-title">{t("home_title")}</h1>
       <p className="home-sub">{t("home_sub")}</p>
-      {GROUPS.map((g) => (
+      <div className="home-tools">
+        <input id="home-search" type="search" className="home-search" placeholder={t("fm_search")} value={q} onChange={(e) => setQ(e.target.value)} />
+        <button id="fm-open" className="ghost" onClick={() => fileIn.current?.click()}>⤒ {t("fm_openFile")}</button>
+        <input ref={fileIn} type="file" accept=".json,application/json" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = ""; }} />
+      </div>
+      {list.length > 0 && !q && (
+        <section className="home-group saved">
+          <h2>{t("fm_mine")}</h2>
+          <div className="saved-list">
+            {shown.map((c) => (
+              <div key={c.id} className="saved-row">
+                <button className="saved-open" onClick={() => open(c)}>
+                  <span className="saved-name">{c.name}</span>
+                  <span className="saved-meta">{scrTitle(c)} · {c.code === "DBN" ? "ДБН" : "EN"} · {new Date(c.date).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}</span>
+                </button>
+                <button className="icon-btn" title={t("fm_download")} aria-label={t("fm_download")} onClick={() => download(c)}>⤓</button>
+                <button className={`icon-btn ${del === c.id ? "danger" : ""}`} title={t("fm_delete")} aria-label={t("fm_delete")}
+                  onClick={() => { if (del === c.id) { remove(c.id); setDel(null); } else setDel(c.id); }} onBlur={() => setDel(null)}>{del === c.id ? t("fm_deleteSure") : "✕"}</button>
+              </div>
+            ))}
+          </div>
+          <div className="saved-foot">
+            {list.length > 6 && <button className="ghost" onClick={() => setAll(!all)}>{all ? t("fm_less") : `${t("fm_more")} (${list.length})`}</button>}
+            <button className="ghost" onClick={downloadAll}>⤓ {t("fm_downloadAll")}</button>
+          </div>
+        </section>
+      )}
+      {groups.length === 0 && <p className="hint">{t("fm_nothing")}</p>}
+      {groups.map((g) => (
         <section key={g.key} className="home-group">
           <h2>{t(g.key)}</h2>
-          {g.hint && <p className="home-hint">{t(g.hint)}</p>}
+          {g.hint && !q && <p className="home-hint">{t(g.hint)}</p>}
           <div className="cards">
             {g.items.map((it) => (
               <button key={it.id} id={`card-${it.id}`} className={`card ${it.ready ? "" : "soon"} ${it.conn ? "compact" : ""}`} disabled={!it.ready}
-                onClick={() => (it.conn ? go("connection", it.conn) : it.asm ? goAsm(it.asm) : it.id === "assembly" ? goAsm(null) : go(it.id as Screen))}>
-                <svg viewBox="0 0 48 48" className="card-icon" aria-hidden="true">{it.conn ? CONN_ICONS[it.conn] : it.asm ? ASM_ICONS[it.asm] : ICONS[it.id] ?? ASM_ICONS.empty}</svg>
-                <span className="card-title">{t(it.conn ? it.id : it.asm && it.id !== "truss" && it.id !== "frame" ? `at_${it.asm}` : `mod_${it.id}`)}</span>
-                <span className="card-desc">{t(it.conn ? `${it.id}_d` : it.asm ? `at_${it.asm}_d` : `mod_${it.id}_d`)}</span>
+                onClick={() => (it.conn ? go("connection", it.conn) : it.asm ? goAsm(it.asm, it.seis) : it.id === "assembly" ? goAsm(null) : go(it.id as Screen))}>
+                <svg viewBox="0 0 48 48" className="card-icon" aria-hidden="true">{it.conn ? CONN_ICONS[it.conn] : it.seis ? ICONS.dynamic : it.asm ? ASM_ICONS[it.asm] : ICONS[it.id] ?? ASM_ICONS.empty}</svg>
+                <span className="card-title">{title(it)}</span>
+                <span className="card-desc">{desc(it)}</span>
                 {!it.ready && <span className="card-soon">{t("soon")}</span>}
               </button>
             ))}

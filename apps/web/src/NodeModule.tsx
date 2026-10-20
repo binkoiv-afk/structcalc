@@ -1,5 +1,6 @@
 // Конструктор вузла: шаблон → деталі (форма, розміри, матеріал) → стики (шви, анкери) → сполучення навантажень.
 // Деталі вибираються кліком на схемі або у списку; відкрита лише одна картка, щоб не плутатися у вводі.
+import { NumInput } from "./NumInput";
 import { useMemo, useState } from "react";
 import {
   ANCHOR_STEELS, AnchorType, BOLT_DIAMETERS, checkBasePlate, CodeId, CONCRETE_CLASSES, familiesFor, familySections, findSection,
@@ -111,7 +112,7 @@ export const NODE_ICONS: Record<string, JSX.Element> = {
 };
 
 function Num({ id, label, v, on, step, ph }: { id: string; label: string; v: number | string; on: (s: string) => void; step?: number; ph?: string }) {
-  return <label><span className="lbl">{label}</span><input id={id} type="number" step={step ?? 1} placeholder={ph} value={v} onChange={(e) => on(e.target.value)} /></label>;
+  return <label><span className="lbl">{label}</span><NumInput id={id} step={step ?? 1} placeholder={ph} value={v} onChange={(e) => on(e.target.value)} /></label>;
 }
 
 /** пакет під плитою; старі збереження — лише підливка */
@@ -369,7 +370,7 @@ function NodeScheme({ s, p, r, combo, onPick, sel, set, pts, interactive = true 
     setEdit(null);
   };
   const overlay = (view: 0 | 1, vw: number, vh: number) => edit && edit.view === view && (
-    <input className="dim-input" type="number" autoFocus defaultValue={edit.v}
+    <NumInput className="dim-input" autoFocus defaultValue={edit.v}
       style={{ left: `${(edit.x / vw) * 100}%`, top: `${(edit.y / vh) * 100}%` }}
       onKeyDown={(e) => { if (e.key === "Enter") commit((e.target as HTMLInputElement).value); if (e.key === "Escape") setEdit(null); }}
       onBlur={(e) => commit(e.target.value)} />
@@ -510,7 +511,7 @@ export function NodeModule({ code, s, set, t, onReturn, onReturnBase }: { code: 
             <select id={`stm${k}`} value={l.mat} onChange={(e) => upd({ mat: e.target.value, fd: undefined })}>
               {LAYER_GROUPS.map((g) => <optgroup key={g} label={t(`lg_${g}`)}>{LAYER_MATERIALS.filter((m) => m.group === g).map((m) => <option key={m.id} value={m.id}>{t(`lay_${m.id}`)}</option>)}</optgroup>)}
             </select>
-            <label className="mini"><span>t</span><input id={`stt${k}`} type="number" value={l.t} onChange={(e) => upd({ t: Math.max(0, num(e.target.value)) })} /></label>
+            <label className="mini"><span>t</span><NumInput id={`stt${k}`} value={l.t} onChange={(e) => upd({ t: Math.max(0, num(e.target.value)) })} /></label>
             <span className="row-tools">
               <button className="icon" aria-label="up" disabled={k === 0} onClick={() => { const n = [...stk]; [n[k - 1], n[k]] = [n[k], n[k - 1]]; setStack(n); }}>↑</button>
               <button className="icon" aria-label="down" disabled={k === stk.length - 1} onClick={() => { const n = [...stk]; [n[k + 1], n[k]] = [n[k], n[k + 1]]; setStack(n); }}>↓</button>
@@ -519,9 +520,9 @@ export function NodeModule({ code, s, set, t, onReturn, onReturnBase }: { code: 
             {lm.group !== "metal" && <details className="stack-more">
               <summary>{l.L || l.B || l.fd ? `${l.L ?? s.L}×${l.B ?? s.B} · f_d ${l.fd ?? +lm.fd.toFixed(2)}` : t("nst_more")}</summary>
               <div className="grid3">
-                <label className="mini"><span>L</span><input id={`stl${k}`} type="number" placeholder={String(s.L)} value={l.L ?? ""} onChange={(e) => upd({ L: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
-                <label className="mini"><span>B</span><input id={`stb${k}`} type="number" placeholder={String(s.B)} value={l.B ?? ""} onChange={(e) => upd({ B: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
-                <label className="mini"><span>f_d</span><input id={`stf${k}`} type="number" step={0.1} placeholder={lm.fd.toFixed(2)} value={l.fd ?? ""} onChange={(e) => upd({ fd: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
+                <label className="mini"><span>L</span><NumInput id={`stl${k}`} placeholder={String(s.L)} value={l.L ?? ""} onChange={(e) => upd({ L: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
+                <label className="mini"><span>B</span><NumInput id={`stb${k}`} placeholder={String(s.B)} value={l.B ?? ""} onChange={(e) => upd({ B: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
+                <label className="mini"><span>f_d</span><NumInput id={`stf${k}`} step={0.1} placeholder={lm.fd.toFixed(2)} value={l.fd ?? ""} onChange={(e) => upd({ fd: e.target.value === "" ? undefined : num(e.target.value) })} /></label>
               </div>
               <p className="hint">{lm.ref}</p>
             </details>}
@@ -619,8 +620,8 @@ export function NodeModule({ code, s, set, t, onReturn, onReturnBase }: { code: 
         {pts.map((q, k) => (
           <div key={k} className="apts-row">
             <span>{k + 1}</span>
-            <input id={`apx${k}`} type="number" value={q.x} onChange={(e) => set({ aPts: pts.map((a, j) => (j === k ? { ...a, x: num(e.target.value) } : a)) })} />
-            <input id={`apy${k}`} type="number" value={q.y} onChange={(e) => set({ aPts: pts.map((a, j) => (j === k ? { ...a, y: num(e.target.value) } : a)) })} />
+            <NumInput id={`apx${k}`} value={q.x} onChange={(e) => set({ aPts: pts.map((a, j) => (j === k ? { ...a, x: num(e.target.value) } : a)) })} />
+            <NumInput id={`apy${k}`} value={q.y} onChange={(e) => set({ aPts: pts.map((a, j) => (j === k ? { ...a, y: num(e.target.value) } : a)) })} />
             {pts.length > 1 ? <button className="ghost xbtn" aria-label="remove" onClick={() => set({ aPts: pts.filter((_, j) => j !== k) })}>×</button> : <span />}
           </div>))}
         <button id="addanchor" className="ghost" onClick={() => set({ aPts: [...pts, { x: 0, y: 0 }] })}>+ {t("nj_addAnchor")}</button>
@@ -644,8 +645,8 @@ export function NodeModule({ code, s, set, t, onReturn, onReturnBase }: { code: 
           <tr key={k}>
             <td><input id={`kl${k}`} className="cname" value={c.label} onChange={(e) => setCase(k, { label: e.target.value })} /></td>
             <td><select id={`kc${k}`} value={c.cat} onChange={(e) => { const cat = e.target.value as LoadCategory; setCase(k, { cat, gf: GF[code][cat] }); }}>{cats.map((x) => <option key={x} value={x}>{x}</option>)}</select></td>
-            <td><input id={`kg${k}`} type="number" step={0.05} value={c.gf ?? GF[code][c.cat]} onChange={(e) => setCase(k, { gf: num(e.target.value) })} /></td>
-            {cols.map((col) => <td key={col}><input id={`k${col}${k}`} type="number" value={(c[col] as number | undefined) ?? ""} placeholder="0" onChange={(e) => setCase(k, { [col]: e.target.value === "" ? undefined : num(e.target.value) })} /></td>)}
+            <td><NumInput id={`kg${k}`} step={0.05} value={c.gf ?? GF[code][c.cat]} onChange={(e) => setCase(k, { gf: num(e.target.value) })} /></td>
+            {cols.map((col) => <td key={col}><NumInput id={`k${col}${k}`} value={(c[col] as number | undefined) ?? ""} placeholder="0" onChange={(e) => setCase(k, { [col]: e.target.value === "" ? undefined : num(e.target.value) })} /></td>)}
             <td>{s.cases.length > 1 && <button className="ghost xbtn" aria-label="remove" onClick={() => set({ cases: s.cases.filter((_, j) => j !== k) })}>×</button>}</td>
           </tr>))}
         </tbody>
@@ -665,7 +666,7 @@ export function NodeModule({ code, s, set, t, onReturn, onReturnBase }: { code: 
         <tbody>{s.combos.map((c, k) => (
           <tr key={k}>
             <td><input id={`cn${k}`} className="cname" value={c.name} onChange={(e) => setCombo(k, { name: e.target.value })} /></td>
-            {cols.map((col) => <td key={col}><input id={`c${col}${k}`} type="number" value={(c[col] as number | undefined) ?? ""} placeholder="0" onChange={(e) => setCombo(k, { [col]: e.target.value === "" ? undefined : num(e.target.value) })} /></td>)}
+            {cols.map((col) => <td key={col}><NumInput id={`c${col}${k}`} value={(c[col] as number | undefined) ?? ""} placeholder="0" onChange={(e) => setCombo(k, { [col]: e.target.value === "" ? undefined : num(e.target.value) })} /></td>)}
             <td>{s.combos.length > 1 && <button className="ghost xbtn" aria-label="remove" onClick={() => set({ combos: s.combos.filter((_, j) => j !== k) })}>×</button>}</td>
           </tr>))}
         </tbody>

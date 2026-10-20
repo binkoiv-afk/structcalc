@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { NumInput } from "./NumInput";
 import { CodeId, CustomMaterialDef, CustomSectionDef, DENSITIES, SHAPES, ShapeId, shapeProps } from "@structcalc/core";
 import type { T } from "./Results";
 
@@ -111,7 +112,7 @@ export function GeneratorModule({ s, set, lib, setLib, t }: {
           <div className="grid2">
             {shape.dims.map((k) => (
               <label key={k}><span className="lbl">{k}, mm</span>
-                <input id={`gd-${k}`} type="number" step={k.startsWith("t") || k === "r" || k === "c" ? 0.5 : 1} value={dims[k]} onChange={(e) => setDim(k, num(e.target.value))} /></label>
+                <NumInput id={`gd-${k}`} step={k.startsWith("t") || k === "r" || k === "c" ? 0.5 : 1} value={dims[k]} onChange={(e) => setDim(k, num(e.target.value))} /></label>
             ))}
           </div>
           <p className="hint">{t(`shape_${shape.id}_h`)}</p>
@@ -177,11 +178,11 @@ export function LibraryModule({ lib, setLib, t }: { lib: LibState; setLib: (p: P
               {lib.materials.map((m, i) => (
                 <div className="lib-row" key={i}>
                   <input aria-label={t("lib_name")} value={m.id} onChange={(e) => upd(i, { id: e.target.value })} />
-                  <input type="number" value={m.E} onChange={(e) => upd(i, { E: num(e.target.value) })} />
-                  <input type="number" value={m.fy} onChange={(e) => upd(i, { fy: num(e.target.value) })} />
-                  <input type="number" value={m.fu} onChange={(e) => upd(i, { fu: num(e.target.value) })} />
-                  <input type="number" step={0.005} value={m.gammaM} onChange={(e) => upd(i, { gammaM: num(e.target.value) })} />
-                  <input type="number" value={m.rho ?? ""} onChange={(e) => upd(i, { rho: num(e.target.value) })} />
+                  <NumInput value={m.E} onChange={(e) => upd(i, { E: num(e.target.value) })} />
+                  <NumInput value={m.fy} onChange={(e) => upd(i, { fy: num(e.target.value) })} />
+                  <NumInput value={m.fu} onChange={(e) => upd(i, { fu: num(e.target.value) })} />
+                  <NumInput step={0.005} value={m.gammaM} onChange={(e) => upd(i, { gammaM: num(e.target.value) })} />
+                  <NumInput value={m.rho ?? ""} onChange={(e) => upd(i, { rho: num(e.target.value) })} />
                   <button className="ghost" aria-label={t("remove")} onClick={() => setLib({ materials: lib.materials.filter((_, k) => k !== i) })}>✕</button>
                 </div>
               ))}

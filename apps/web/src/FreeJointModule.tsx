@@ -1,6 +1,7 @@
 // Вільний вузол: свої деталі (пластини, профілі) і свої зв'язки між ними (шви, групи болтів), сила в будь-якій точці.
 // Програма розподіляє зусилля по зв'язках (пластини — МСЕ оболонки, профілі — жорсткі тіла, зв'язки — пружини)
 // і перевіряє кожен зв'язок, переріз деталі біля нього і напруження в пластинах між зв'язками.
+import { NumInput } from "./NumInput";
 import { useDeferredValue, useMemo, useState } from "react";
 import type { FPlateMap } from "@structcalc/core";
 import {
@@ -52,7 +53,7 @@ function segsOf(c: FConnUI) {
 
 const num = (v: string) => (v.trim() === "" ? 0 : Number(v.replace(",", ".")));
 function Num({ id, label, v, on, step }: { id: string; label: string; v: number; on: (n: number) => void; step?: number }) {
-  return <label><span className="lbl">{label}</span><input id={id} type="number" step={step ?? 1} value={v} onChange={(e) => on(num(e.target.value))} /></label>;
+  return <label><span className="lbl">{label}</span><NumInput id={id} step={step ?? 1} value={v} onChange={(e) => on(num(e.target.value))} /></label>;
 }
 const DETAIL = new Set(["weldKfMin", "weldKfMax", "weldAmin", "weldLmin", "weldLflank", "weldLong"]);
 function gov<C extends { key: string; util: number }>(cs: C[]): C | undefined {
@@ -188,7 +189,7 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
         </> : <div className="wide apts">
           <div className="apts-head seg4"><span>{u}₁</span><span>{v}₁</span><span>{u}₂</span><span>{v}₂</span><span /></div>
           {c.segs.map((g, j) => <div key={j} className="apts-row seg4">
-            {(["u1", "v1", "u2", "v2"] as const).map((key) => <input key={key} id={`${c.id}-sg${j}${key}`} type="number" value={g[key]} onChange={(e) => upConn(k, { segs: c.segs.map((x, q) => (q === j ? { ...x, [key]: num(e.target.value) } : x)) })} />)}
+            {(["u1", "v1", "u2", "v2"] as const).map((key) => <NumInput key={key} id={`${c.id}-sg${j}${key}`} value={g[key]} onChange={(e) => upConn(k, { segs: c.segs.map((x, q) => (q === j ? { ...x, [key]: num(e.target.value) } : x)) })} />)}
             {c.segs.length > 1 ? <button className="ghost xbtn" aria-label="remove" onClick={() => upConn(k, { segs: c.segs.filter((_, q) => q !== j) })}>×</button> : <span />}
           </div>)}
           <button className="ghost" id={`${c.id}-addseg`} onClick={() => upConn(k, { segs: [...c.segs, { u1: 0, v1: 0, u2: 0, v2: 100 }] })}>+ {t("fj_seg")}</button>
@@ -236,7 +237,7 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
         <tbody>{s.combos.map((c, k) => (
           <tr key={k}>
             <td><input id={`fcn${k}`} className="cname" value={c.name} onChange={(e) => setCombo(k, { name: e.target.value })} /></td>
-            {F_KEYS.map((col) => <td key={col}><input id={`fc${col}${k}`} type="number" value={c[col] ?? ""} placeholder="0" onChange={(e) => setCombo(k, { [col]: e.target.value === "" ? undefined : num(e.target.value) })} /></td>)}
+            {F_KEYS.map((col) => <td key={col}><NumInput id={`fc${col}${k}`} value={c[col] ?? ""} placeholder="0" onChange={(e) => setCombo(k, { [col]: e.target.value === "" ? undefined : num(e.target.value) })} /></td>)}
             <td>{s.combos.length > 1 && <button className="ghost xbtn" aria-label="remove" onClick={() => set({ combos: s.combos.filter((_, j) => j !== k) })}>×</button>}</td>
           </tr>))}
         </tbody>

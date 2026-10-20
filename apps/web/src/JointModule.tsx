@@ -1,6 +1,7 @@
 // Сталеві вузли примикання і стики (ребро, торцева плита, фланці, накладки, фасонка, столик, консоль):
 // деталі → болти і шви → сполучення; креслення в трьох проєкціях, клік по деталі відкриває її картку.
 // Вузол може бути самостійним або відкритим зі «Збірки» (зусилля всіх сполучень підставлені, результат повертається назад).
+import { NumInput } from "./NumInput";
 import { useMemo, useState } from "react";
 import {
   BOLT_CLASSES, BOLT_DIAMETERS, Check, checkJoint, CodeId, familiesFor, familySections, findSection, gussetMembersDefault, JDim, JointKind, JointParams,
@@ -186,7 +187,7 @@ export function JointViews({ r, sel, onPick, utilOf, t, interactive = true }: { 
 
 const num = (v: string) => (v.trim() === "" ? 0 : Number(v.replace(",", ".")));
 function Num({ id, label, v, on, step }: { id: string; label: string; v: number; on: (n: number) => void; step?: number }) {
-  return <label><span className="lbl">{label}</span><input id={id} type="number" step={step ?? 1} value={v} onChange={(e) => on(num(e.target.value))} /></label>;
+  return <label><span className="lbl">{label}</span><NumInput id={id} step={step ?? 1} value={v} onChange={(e) => on(num(e.target.value))} /></label>;
 }
 
 const BEAM_SHAPES: Record<JointKind, string[]> = {
@@ -397,7 +398,7 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
         <tbody>{s.combos.map((c, k) => (
           <tr key={k}>
             <td><input id={`jcn${k}`} className="cname" value={c.name} onChange={(e) => setCombo(k, { name: e.target.value })} /></td>
-            {cols.map((col) => <td key={col}><input id={`jc${col}${k}`} type="number" value={val(c, col) ?? ""} placeholder="0" onChange={(e) => setCombo(k, { [col]: e.target.value === "" ? undefined : num(e.target.value) })} /></td>)}
+            {cols.map((col) => <td key={col}><NumInput id={`jc${col}${k}`} value={val(c, col) ?? ""} placeholder="0" onChange={(e) => setCombo(k, { [col]: e.target.value === "" ? undefined : num(e.target.value) })} /></td>)}
             <td>{s.combos.length > 1 && <button className="ghost xbtn" aria-label="remove" onClick={() => set({ combos: s.combos.filter((_, j) => j !== k) })}>×</button>}</td>
           </tr>))}
         </tbody>
@@ -417,8 +418,8 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
           <tr key={k}>
             <td><input id={`jkl${k}`} className="cname" value={c.label} onChange={(e) => setCase(k, { label: e.target.value })} /></td>
             <td><select id={`jkc${k}`} value={c.cat} onChange={(e) => setCase(k, { cat: e.target.value as NodeCase["cat"], gf: GFk(e.target.value) })}>{["G", "L", "Q", "A"].map((x) => <option key={x}>{x}</option>)}</select></td>
-            <td><input id={`jkg${k}`} type="number" step={0.05} value={c.gf ?? GFk(c.cat)} onChange={(e) => setCase(k, { gf: num(e.target.value) })} /></td>
-            {cols.map((col) => <td key={col}><input id={`jk${col}${k}`} type="number" value={val(c, col) ?? ""} placeholder="0" onChange={(e) => setCase(k, { [col]: e.target.value === "" ? undefined : num(e.target.value) } as Partial<NodeCase>)} /></td>)}
+            <td><NumInput id={`jkg${k}`} step={0.05} value={c.gf ?? GFk(c.cat)} onChange={(e) => setCase(k, { gf: num(e.target.value) })} /></td>
+            {cols.map((col) => <td key={col}><NumInput id={`jk${col}${k}`} value={val(c, col) ?? ""} placeholder="0" onChange={(e) => setCase(k, { [col]: e.target.value === "" ? undefined : num(e.target.value) } as Partial<NodeCase>)} /></td>)}
             <td>{s.cases.length > 1 && <button className="ghost xbtn" aria-label="remove" onClick={() => set({ cases: s.cases.filter((_, j) => j !== k) })}>×</button>}</td>
           </tr>))}
         </tbody>

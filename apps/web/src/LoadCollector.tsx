@@ -1,3 +1,4 @@
+import { NumInput } from "./NumInput";
 import {
   CAER_PRESETS, CITIES_UA, CodeId, snowDBN, snowEN, TEF_PRESETS, TerrainDBN, TerrainEN, UserLoad, windDBN, windEN,
 } from "@structcalc/core";
@@ -22,7 +23,7 @@ export function LoadCollector({ code, c, set, onAdd, t }: {
   code: CodeId; c: CollectorState; set: (p: Partial<CollectorState>) => void; onAdd: (l: UserLoad) => void; t: (k: string) => string;
 }) {
   const N = (key: keyof CollectorState, step = "0.1", id = `lc_${key}`) => (
-    <input id={id} type="number" step={step} value={c[key] as number} onChange={(e) => set({ [key]: num(e.target.value) } as Partial<CollectorState>)} />
+    <NumInput id={id} step={step} value={c[key] as number} onChange={(e) => set({ [key]: num(e.target.value) } as Partial<CollectorState>)} />
   );
   const b = c.width;
 
