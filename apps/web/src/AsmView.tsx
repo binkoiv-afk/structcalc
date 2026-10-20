@@ -1,7 +1,7 @@
 // 3D-вид збірки (SVG, ортогональна проєкція): обертання, масштаб, вибір і перетягування вузлів у площинних видах,
 // навантаження, деформована схема, епюри, кольори за використанням.
 import { useMemo, useRef, useState } from "react";
-import { shellVonMises } from "@structcalc/core";
+import { bracePoints, shellVonMises } from "@structcalc/core";
 import type { Assembly, AsmResult, FrameResult, Vec3 } from "@structcalc/core";
 import { utilState } from "./Results";
 
@@ -189,6 +189,8 @@ export function AsmView({ asm, res, combo, sel, onPick, onMoveNode, onPlace, vie
         ? <circle key={`e${g.length}`} cx={x} cy={y} r={3.2} className="av-pin" />
         : <rect key={`e${g.length}`} x={x - 2.6} y={y - 2.6} width={5.2} height={5.2} className={`av-rigid k-${end.kind}`} />);
     }
+    // точки раскріплення (прогони, зв'язки) — хрестики
+    bracePoints(asm, m).forEach((bp, k) => { const q = S(bp.P); g.push(<path key={`br${k}`} className="av-brace" d={`M${q.x - 3.5} ${q.y - 3.5}l7 7M${q.x + 3.5} ${q.y - 3.5}l-7 7`} />); });
     if (show === "util" && u !== undefined) g.push(<text key="u" x={(sa.x + sb.x) / 2 + 4} y={(sa.y + sb.y) / 2 - 4} className={`av-txt ${utilState(u)}`}>{Math.round(u * 100)}%</text>);
     else if (marks.includes("ids")) g.push(<text key="id" x={(sa.x + sb.x) / 2 + 4} y={(sa.y + sb.y) / 2 - 4} className="av-txt">{m.id}</text>);
     // епюри

@@ -4,7 +4,7 @@
 import { NumInput } from "./NumInput";
 import { useMemo, useState } from "react";
 import {
-  analyzeAssembly, ASM_TEMPLATES, asmTemplate, AsmTemplate, Assembly, AsmMember, AsmNode, AsmResult, basePlateDefaults, BOLT_CLASSES, BOLT_DIAMETERS,
+  analyzeAssembly, ASM_TEMPLATES, bracePoints, asmTemplate, AsmTemplate, Assembly, AsmMember, AsmNode, AsmResult, basePlateDefaults, BOLT_CLASSES, BOLT_DIAMETERS,
   Check, CodeId, CONCRETE_CLASSES, Dof, EndConn, familiesFor, familySections, findSection, GF_DEFAULT, LoadCategory, MemberLoad, PanelLoad, STEELS, Vec3,
   A0_TABLE, k1Of, K1_TABLE, seisCoefDefault, SeismicInput,
 } from "@structcalc/core";
@@ -159,6 +159,29 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
   const modeOn = buckOn || (r?.seismic && (s.mode ?? -1) >= 0 && (s.mode ?? -1) < r.seismic.shapes.length);
   const comboRes = buckOn ? stb!.shape! : modeOn ? r!.seismic!.shapes[s.mode!] : uls[ci];
 
+  // раскріплення стрижня в прольоті: прогони, зв'язки
+  const braceEd = (m: AsmMember) => {
+    const ni = asm.nodes.find((n) => n.id === m.i), nj = asm.nodes.find((n) => n.id === m.j);
+    const L = ni && nj ? Math.hypot(nj.x - ni.x, nj.y - ni.y, nj.z - ni.z) : 0;
+    const b = m.brace, pts = b ? bracePoints(asm, m) : [];
+    const upB = (q: Partial<NonNullable<AsmMember["brace"]>>) => updMember(m.id, { brace: { step: b?.step ?? Math.round(L / 3), ...b, ...q } });
+    return (
+      <div className="brace-ed">
+        <label className="chk"><input id="m-brace" type="checkbox" checked={!!b} onChange={(e) => updMember(m.id, { brace: e.target.checked ? { step: Math.max(100, Math.round(L / 3)) } : undefined })} />{t("br_on")}</label>
+        {b && <>
+          <div className="grid2">
+            <Num id="m-br-step" label={t("br_step")} step={100} v={b.step} on={(v) => upB({ step: Math.max(50, v) })} />
+            <label><span className="lbl">{t("br_dir")}</span><select id="m-br-dir" value={b.dir ?? "y"} onChange={(e) => upB({ dir: e.target.value as "y" | "z" })}>
+              <option value="y">{t("br_dir_y")}</option><option value="z">{t("br_dir_z")}</option></select></label>
+            <label className="chk wide"><input id="m-br-flange" type="checkbox" checked={!!b.flange} disabled={b.dir === "z"} onChange={(e) => upB({ flange: e.target.checked })} />{t("br_flange")}</label>
+          </div>
+          <p className="hint">{t("br_count").replace("{n}", String(pts.length)).replace("{dof}", pts[0]?.dof ?? "—")}{pts.some((p) => p.skew) ? ` ${t("br_skew")}` : ""}</p>
+        </>}
+        {!b && <p className="hint">{t("br_hint")}</p>}
+      </div>
+    );
+  };
+
   // ---- картки редагування
   const memberIds = asm.members.map((m) => m.id), nodeIds = asm.nodes.map((n) => n.id);
   const endEditor = (m: AsmMember, which: "endI" | "endJ") => {
@@ -252,6 +275,7 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
           <Num id="m-muy" label="μ_y" step={0.1} v={m.mu?.y ?? 1} on={(v) => updMember(m.id, { mu: { y: v, z: m.mu?.z ?? 1 } })} />
           <Num id="m-muz" label="μ_z" step={0.1} v={m.mu?.z ?? 1} on={(v) => updMember(m.id, { mu: { y: m.mu?.y ?? 1, z: v } })} />
         </div>
+        {braceEd(m)}
         {endEditor(m, "endI")}
         {endEditor(m, "endJ")}
         <p className="hint">{t("asm_memberHint")}</p>

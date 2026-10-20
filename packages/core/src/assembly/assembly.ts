@@ -12,7 +12,7 @@ import { steel } from "../catalog/materials";
 import type { Section } from "../geometry/sections";
 import { buildCombinations } from "../loads/combinations";
 import type { LoadCategory } from "../loads/combinations";
-import { axialForces, combineFrame, frameBuckling, frameModes, frameSecondOrder, imperfectionCases, G_MM, mergeMemberParts, solveFrame, splitMemberLoads } from "../analysis/frame3d";
+import { axialForces, combineFrame, memberAxes, frameBuckling, frameModes, frameSecondOrder, imperfectionCases, G_MM, mergeMemberParts, solveFrame, splitMemberLoads } from "../analysis/frame3d";
 import { driftLimit, rhoCQC, rhoDBN, seisSa } from "../loads/seismic";
 import type { SeismicInput } from "../loads/seismic";
 import type { Dof, FrameMember, FrameModel, FrameNode, FrameResult, LoadCase, MemberForces, MemberLoad, Vec3 } from "../analysis/frame3d";
@@ -65,6 +65,9 @@ export interface AsmMember {
   /** коефіцієнти розрахункової довжини відносно y і z */
   mu?: { y: number; z: number };
   endI: EndConn; endJ: EndConn;
+  /** раскріплення в прольоті (прогони, зв'язки) з кроком step, мм: закріплюється зміщення вздовж локальної осі dir
+   *  (y — з площини, за замовчуванням; z — у площині); flange — раскріплює стиснутий пояс (для стійкості плоскої форми згину) */
+  brace?: { step: number; dir?: "y" | "z"; flange?: boolean };
 }
 
 export interface AsmCase {
@@ -173,6 +176,24 @@ function sectionOf(m: AsmMember): Section {
   return s;
 }
 
+/** Точки раскріплення стрижня: x від вузла i, положення і глобальний ступінь, найближчий до локальної осі (skew — відхилення > 18°) */
+export function bracePoints(a: Assembly, m: AsmMember): { x: number; P: Vec3; dof: "ux" | "uy" | "uz"; skew: boolean }[] {
+  const b = m.brace;
+  if (!b || !(b.step > 0)) return [];
+  const ni = a.nodes.find((n) => n.id === m.i), nj = a.nodes.find((n) => n.id === m.j);
+  if (!ni || !nj) return [];
+  const A: Vec3 = [ni.x, ni.y, ni.z], B: Vec3 = [nj.x, nj.y, nj.z], L = Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]);
+  if (!(L > 0)) return [];
+  const ax = memberAxes(A, B, m.beta)[b.dir === "z" ? 2 : 1];
+  const q = [0, 1, 2].reduce((p, c) => (Math.abs(ax[c]) > Math.abs(ax[p]) ? c : p), 0);
+  const out: { x: number; P: Vec3; dof: "ux" | "uy" | "uz"; skew: boolean }[] = [];
+  for (let k = 1; k * b.step < L - Math.max(1, 0.05 * b.step) && out.length < 200; k++) {
+    const t = (k * b.step) / L;
+    out.push({ x: k * b.step, P: [A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t], dof: (["ux", "uy", "uz"] as const)[q], skew: Math.abs(ax[q]) < 0.95 });
+  }
+  return out;
+}
+
 /** Модель МСЕ зі збірки */
 export function toFrame(a: Assembly): { model: FrameModel; sections: Record<string, Section> } {
   const sections: Record<string, Section> = {};
@@ -230,6 +251,14 @@ export function meshPlates(a: Assembly, model: FrameModel) {
     }
     info.push({ panel: p.id, t: p.t ?? 8, steel: st.id, nu, nv, pts, elems, ids });
   }
+  // точки раскріплення стрижнів (прогони, зв'язки): вузли з закріпленим ступенем
+  for (const m of a.members) bracePoints(a, m).forEach((bp, k) => {
+    const kk = key(bp.P);
+    let id = byKey.get(kk);
+    if (!id) { id = `${m.id}^${k + 1}`; byKey.set(kk, id); nodes.push({ id, x: bp.P[0], y: bp.P[1], z: bp.P[2] }); created.add(id); }
+    const at = nodes.findIndex((n) => n.id === id);
+    nodes[at] = { ...nodes[at], fix: { ...(nodes[at].fix ?? {}), [bp.dof]: true } };
+  });
   // поділ стрижнів у вузлах сітки, що лежать на них
   const pos = new Map(nodes.map((n) => [n.id, [n.x, n.y, n.z] as Vec3]));
   const split = new Map<string, { id: string; x0: number; L: number }[]>();
@@ -265,14 +294,18 @@ const splitLoads = splitMemberLoads, mergeParts = mergeMemberParts;
 const absMax = (v: number[]) => v.reduce((a, b) => Math.max(a, Math.abs(b)), 0);
 
 /** Перевірка стрижня за огинаючою зусиль одного сполучення */
-function memberChecks(code: CodeId, s: Section, st: string, mf: MemberForces, L: number, mu: { y: number; z: number }, gc: number, gn: number): Check[] {
+function memberChecks(code: CodeId, s: Section, st: string, mf: MemberForces, L: number, mu: { y: number; z: number }, gc: number, gn: number, brace?: AsmMember["brace"]): Check[] {
   const Nc = Math.max(0, -Math.min(...mf.N)), Nt = Math.max(0, Math.max(...mf.N));
   const My = absMax(mf.My), Mz = absMax(mf.Mz), Vz = absMax(mf.Vz), Vy = absMax(mf.Vy);
   const checks: Check[] = [];
+  // раскріплення в прольоті скорочує розрахункову довжину відповідної осі до кроку
+  const bs = brace && brace.step > 0 ? brace.step : Infinity;
+  const Lcr = { y: brace?.dir === "z" ? Math.min(mu.y * L, bs) : mu.y * L, z: brace?.dir !== "z" ? Math.min(mu.z * L, bs) : mu.z * L };
+  const Lltb = brace?.flange && brace.dir !== "z" ? Math.min(mu.z * L, bs) : mu.z * L;
   const mi = {
     code, section: s, steel: st, gammaC: gc, gammaN: gn, NEd: Nc, MEd: My, VEd: Vz,
-    buckling: { Lcr_y: mu.y * L, Lcr_z: mu.z * L },
-    ltb: My > 0 && s.ltbProne ? { restrained: false, Lcr: mu.z * L, C1: 1, C2: 0, loadAt: "center" as const,
+    buckling: { Lcr_y: Lcr.y, Lcr_z: Lcr.z },
+    ltb: My > 0 && s.ltbProne ? { restrained: false, Lcr: Lltb, C1: 1, C2: 0, loadAt: "center" as const,
       dbn: { cantilever: false, load: "uniform" as const, flange: "compressed" as const, restraints: 0 as const } } : undefined,
   };
   try { checks.push(...(code === "EN" ? checkMemberEN(mi) : checkMemberDBN(mi)).checks); } catch { /* перевірки, що не застосовні до форми перерізу */ }
@@ -462,7 +495,7 @@ export function analyzeAssembly(a: Assembly): AsmResult {
   const members: MemberCheck[] = a.members.map((m) => {
     const s = sections[m.id], ni = P.get(m.i)!, nj = P.get(m.j)!;
     const L = Math.hypot(nj.x - ni.x, nj.y - ni.y, nj.z - ni.z);
-    const e = env(ulsBy(1.3).map((r, k) => ({ combo: ulsC[k].name, checks: memberChecks(a.code, s, m.steel, r.members[m.id], L, m.mu ?? { y: 1, z: 1 }, gc, gn) })));
+    const e = env(ulsBy(1.3).map((r, k) => ({ combo: ulsC[k].name, checks: memberChecks(a.code, s, m.steel, r.members[m.id], L, m.mu ?? { y: 1, z: 1 }, gc, gn, m.brace) })));
     return { member: m.id, section: s.name, ...e };
   });
   const conns: ConnCheck[] = [];

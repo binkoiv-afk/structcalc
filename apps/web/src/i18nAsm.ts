@@ -126,6 +126,15 @@ const uk: Dict = {
   so_wNoconv: "Сполучення {c}: ітерації не зійшлися.",
   so_methodDBN: "Пружна стійкість: (K + α·K_σ(N))·φ = 0, де K_σ — геометрична матриця жорсткості від поздовжніх сил сполучення. Стрижні діляться на частини до 1 м, тож враховуються і форми всередині стрижнів. Критерій α_cr ≥ 10 і початковий нахил φ = φ0·α_h·α_m (φ0 = 1/200) прийнято за EN 1993-1-1, 5.2.1 і 5.3.2: у ДБН В.2.6-198 немає прямого аналогу. За деформованою схемою зусилля уточнюються ітераціями за N. Пластини дають жорсткість, але їхня місцева втрата стійкості тут не перевіряється. Перевірки стрижнів на стійкість залишаються з розрахунковими довжинами μ·L, у запас.",
   so_methodEN: "Elastic critical load factor α_cr per EN 1993-1-1, 5.2.1: (K + α·K_σ(N))·φ = 0, members subdivided to ≤ 1 m. Second-order analysis (P-Δ and P-δ) iterates on N, with sway imperfection φ = φ0·α_h·α_m, φ0 = 1/200 (5.3.2(3)), applied as equivalent horizontal forces φ·V; combinations with α_cr ≥ 10 get the imperfection forces only (first order). Plates contribute stiffness but their local buckling is not checked here. Member buckling checks keep the effective lengths μ·L (conservative).",
+  br_on: "Раскріплення в прольоті (прогони, зв'язки)",
+  br_step: "Крок, мм",
+  br_dir: "Що закріплено",
+  br_dir_y: "Зміщення з площини (вісь y)",
+  br_dir_z: "Зміщення в площині (вісь z)",
+  br_flange: "Раскріплює стиснутий пояс (стійкість плоскої форми згину)",
+  br_count: "Точок: {n}, закріплено {dof}. Розрахункова довжина відповідної осі — не більше кроку.",
+  br_skew: "Вісь стрижня похила: закріплено найближчий глобальний напрям.",
+  br_hint: "Прогони, ригелі фахверку, зв'язки: точки, де стрижень не може зміститися вбік. Враховуються в розрахунковій схемі, в α_cr і в гнучкості.",
 };
 
 const ru: Dict = {
@@ -253,6 +262,15 @@ const ru: Dict = {
   so_wNoconv: "Сочетание {c}: итерации не сошлись.",
   so_methodDBN: "Упругая устойчивость: (K + α·K_σ(N))·φ = 0, где K_σ — геометрическая матрица жёсткости от продольных сил сочетания. Стержни делятся на части до 1 м, поэтому учитываются и формы внутри стержней. Критерий α_cr ≥ 10 и начальный наклон φ = φ0·α_h·α_m (φ0 = 1/200) приняты по EN 1993-1-1, 5.2.1 и 5.3.2: в ДБН В.2.6-198 прямого аналога нет. По деформированной схеме усилия уточняются итерациями по N. Пластины дают жёсткость, но их местная потеря устойчивости здесь не проверяется. Проверки стержней на устойчивость остаются с расчётными длинами μ·L, в запас.",
   so_methodEN: "Elastic critical load factor α_cr per EN 1993-1-1, 5.2.1: (K + α·K_σ(N))·φ = 0, members subdivided to ≤ 1 m. Second-order analysis (P-Δ and P-δ) iterates on N, with sway imperfection φ = φ0·α_h·α_m, φ0 = 1/200 (5.3.2(3)), applied as equivalent horizontal forces φ·V; combinations with α_cr ≥ 10 get the imperfection forces only (first order). Plates contribute stiffness but their local buckling is not checked here. Member buckling checks keep the effective lengths μ·L (conservative).",
+  br_on: "Раскрепление в пролёте (прогоны, связи)",
+  br_step: "Шаг, мм",
+  br_dir: "Что закреплено",
+  br_dir_y: "Смещение из плоскости (ось y)",
+  br_dir_z: "Смещение в плоскости (ось z)",
+  br_flange: "Раскрепляет сжатый пояс (устойчивость плоской формы изгиба)",
+  br_count: "Точек: {n}, закреплено {dof}. Расчётная длина соответствующей оси — не больше шага.",
+  br_skew: "Ось стержня наклонная: закреплено ближайшее глобальное направление.",
+  br_hint: "Прогоны, ригели фахверка, связи: точки, где стержень не может сместиться вбок. Учитываются в расчётной схеме, в α_cr и в гибкости.",
 };
 
 const en: Dict = {
@@ -380,6 +398,15 @@ const en: Dict = {
   so_wNoconv: "Combination {c}: iterations did not converge.",
   so_methodDBN: "Elastic stability: (K + α·K_σ(N))·φ = 0, K_σ being the geometric stiffness from the combination's axial forces; members are subdivided to ≤ 1 m so in-member modes are captured. The α_cr ≥ 10 criterion and the sway imperfection φ = φ0·α_h·α_m (φ0 = 1/200) follow EN 1993-1-1, 5.2.1 and 5.3.2: DBN V.2.6-198 has no direct equivalent. Second-order forces are iterated on N. Plates add stiffness, but their local buckling is not checked here. Member buckling checks keep effective lengths μ·L (conservative).",
   so_methodEN: "Elastic critical load factor α_cr per EN 1993-1-1, 5.2.1: (K + α·K_σ(N))·φ = 0, members subdivided to ≤ 1 m. Second-order analysis (P-Δ and P-δ) iterates on N, with sway imperfection φ = φ0·α_h·α_m, φ0 = 1/200 (5.3.2(3)), applied as equivalent horizontal forces φ·V; combinations with α_cr ≥ 10 get the imperfection forces only (first order). Plates contribute stiffness but their local buckling is not checked here. Member buckling checks keep the effective lengths μ·L (conservative).",
+  br_on: "Intermediate restraints (purlins, bracing)",
+  br_step: "Spacing, mm",
+  br_dir: "Restrained",
+  br_dir_y: "Out-of-plane movement (axis y)",
+  br_dir_z: "In-plane movement (axis z)",
+  br_flange: "Restrains the compression flange (lateral-torsional buckling)",
+  br_count: "Points: {n}, {dof} restrained. The buckling length about that axis is at most the spacing.",
+  br_skew: "The member is inclined: the closest global direction is restrained.",
+  br_hint: "Purlins, side rails, bracing: points where the member cannot move sideways. Used in the model, in α_cr and in slenderness.",
 };
 
 export const ASM = { uk, ru, en };

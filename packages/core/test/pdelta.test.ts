@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { analyzeAssembly, asmTemplate, axialForces, frameBuckling, frameSecondOrder, solveFrame } from "../src";
+import { analyzeAssembly, asmTemplate, axialForces, bracePoints, findSection, frameBuckling, frameSecondOrder, solveFrame } from "../src";
+import type { Assembly } from "../src";
 import type { FrameMember, FrameModel, FrameNode } from "../src";
 
 const E = 206000, G = 79000;
@@ -104,5 +105,23 @@ describe("рама: α_cr проти наближення Горна і збір
       expect(r2.maxUtil).toBeGreaterThan(r1.maxUtil - 1e-3);
       if (t === "portal") expect(r2.maxUtil).toBeGreaterThan(r1.maxUtil * 1.01);
     }
+  });
+});
+
+describe("раскріплення в прольоті", () => {
+  const col = (brace?: { step: number; dir?: "y" | "z"; flange?: boolean }): Assembly => ({
+    code: "EN", panels: [], panelLoads: [],
+    nodes: [{ id: "1", x: 0, y: 0, z: 0, support: "pinned", fix: { rz: true } }, { id: "2", x: 0, y: 0, z: 6000, fix: { ux: true, uy: true } }],
+    members: [{ id: "C", i: "1", j: "2", family: "HEA", size: "HEA 200", steel: "S235", endI: { behaviour: "pin", kind: "none" }, endJ: { behaviour: "pin", kind: "none" }, brace }],
+    cases: [{ id: "G", label: "G", cat: "G", nodal: [{ node: "2", F: [0, 0, -100e3, 0, 0, 0] }] }],
+  });
+  it("колона з раскріпленням посередині з площини: α_cr зростає в min(4, I_y/I_z) раз; λ_z — за кроком", () => {
+    const s = findSection("HEA", "HEA 200")!;
+    const r0 = analyzeAssembly(col()), r1 = analyzeAssembly(col({ step: 3000 }));
+    expect(r1.stability!.min / r0.stability!.min).toBeCloseTo(Math.min(4, s.Iy / s.Iz), 1);
+    expect(bracePoints(col({ step: 3000 }), col({ step: 3000 }).members[0])).toEqual([{ x: 3000, P: [0, 0, 3000], dof: "uy", skew: false }]);
+    // перевірка гнучкості відносно z — з L = 3 м: використання менше
+    const u = (r: typeof r0) => Math.max(...r.members[0].checks.filter((c) => /z|weak|слаб/i.test(c.key)).map((c) => c.util), 0);
+    expect(u(r1)).toBeLessThan(u(r0));
   });
 });

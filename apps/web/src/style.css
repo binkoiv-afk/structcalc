@@ -584,3 +584,7 @@ input.num-expr { border-color: var(--accent) !important; box-shadow: 0 0 0 2px v
 .so-big button.ghost { margin-left: auto; align-self: center; }
 .so-big button.ghost.on { background: var(--accent-soft); }
 .so-res tr.ok td:nth-child(2) { color: var(--ok); } .so-res tr.warn td:nth-child(2) { color: var(--warn); } .so-res tr.fail td:nth-child(2) { color: var(--fail); }
+/* v24: раскріплення стрижнів */
+.av-brace { stroke: var(--ok); stroke-width: 1.8; fill: none; pointer-events: none; }
+.brace-ed { border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 8px; }
+.brace-ed .hint { margin: 4px 0 0; }

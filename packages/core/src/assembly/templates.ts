@@ -89,7 +89,7 @@ export function asmTemplate(k: AsmTemplate, code: CodeId): Assembly {
       // шарнірні опори рами; жорсткі вузли ригель–колона на торцевих плитах
       // з площини рама розкріплена зв'язками у вузлах 2 і 3
       nodes: [{ id: "1", x: 0, y: 0, z: 0, support: "pinned" }, { id: "2", x: 0, y: 0, z: H, fix: { uy: true } }, { id: "3", x: L, y: 0, z: H, fix: { uy: true } }, { id: "4", x: L, y: 0, z: 0, support: "pinned" }],
-      members: [m("К1", "1", "2", "HEA", "HEA 260", weld(8, "pin"), weld(10)), m("Р1", "2", "3", "IPE", "IPE 400", endPlate, endPlate, { mu: { y: 1, z: 0.25 } }),
+      members: [m("К1", "1", "2", "HEA", "HEA 260", weld(8, "pin"), weld(10)), m("Р1", "2", "3", "IPE", "IPE 400", endPlate, endPlate, { brace: { step: L / 4, flange: true } }),
         m("К2", "4", "3", "HEA", "HEA 260", weld(8, "pin"), weld(10))],
       panels: [], panelLoads: [],
       cases: [
