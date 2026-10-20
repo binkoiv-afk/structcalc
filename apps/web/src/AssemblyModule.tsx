@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import {
   analyzeAssembly, ASM_TEMPLATES, asmTemplate, AsmTemplate, Assembly, AsmMember, AsmNode, AsmResult, basePlateDefaults, BOLT_CLASSES, BOLT_DIAMETERS,
   Check, CodeId, CONCRETE_CLASSES, Dof, EndConn, familiesFor, familySections, findSection, GF_DEFAULT, LoadCategory, MemberLoad, PanelLoad, STEELS, Vec3,
+  A0_TABLE, k1Of, K1_TABLE, seisCoefDefault, SeismicInput,
 } from "@structcalc/core";
 import { AsmView, Pick, ShowMode, ViewKind } from "./AsmView";
 import { CheckList, pct, T, utilState } from "./Results";
@@ -28,6 +29,10 @@ export interface AsmState {
   obj: string; elem: string;
   /** вузли, розраховані в модулі «Вузол»: ключ «стрижень|кінець» */
   jres?: Record<string, JointReturn>;
+  /** показати форму власних коливань (−1 — ні) */
+  mode?: number;
+  /** тип конструкції для k1 (табл. 6.3) */
+  k1kind?: string;
 }
 export const initialAsm: AsmState = { tmpl: null, asm: null, sel: null, view: "3d", show: "util", tool: "select", pending: [], loadsOf: "", combo: -1, ids: false, obj: "", elem: "" };
 
@@ -148,7 +153,8 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
     return best;
   })();
   const ci = s.combo >= 0 && s.combo < uls.length ? s.combo : govIdx;
-  const comboRes = uls[ci];
+  const modeOn = r?.seismic && (s.mode ?? -1) >= 0 && (s.mode ?? -1) < r.seismic.shapes.length;
+  const comboRes = modeOn ? r!.seismic!.shapes[s.mode!] : uls[ci];
 
   // ---- картки редагування
   const memberIds = asm.members.map((m) => m.id), nodeIds = asm.nodes.map((n) => n.id);
@@ -341,6 +347,65 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
     );
   })();
 
+  // ---- сейсміка
+  const sq: SeismicInput = asm.seismic ?? { on: false, dirs: { x: true, y: true, z: false } };
+  const upS = (p: Partial<SeismicInput>) => setAsm({ seismic: { ...sq, ...p } });
+  const I = sq.intensity ?? 7, k1kind = s.k1kind ?? "steelFrame";
+  const a0Key = A0_TABLE.findIndex((x) => x.a0 === (sq.a0 ?? 0.1) && x.A === I);
+  const K2 = [1.5, 1.4, 1.3, 1.2, 1.4, 1.4, 1.0, 1.0, 0.5];
+  const seisEd = (
+    <fieldset className="seis"><legend><span className="step">3</span>{t("seis_title")}</legend>
+      <label className="chk"><input id="seis-on" type="checkbox" checked={sq.on} onChange={(e) => upS({ on: e.target.checked, ...(code === "DBN" && sq.a0 === undefined ? { a0: 0.1, intensity: 7, soil: "II", k1: k1Of(k1kind, 7), k2: 1 } : {}) })} />{t("seis_on")}</label>
+      {sq.on && <>
+        {code === "DBN" ? <div className="grid2">
+          <label className="wide"><span className="lbl">{t("seis_map")}</span><select id="seis-a0" value={a0Key} onChange={(e) => { const x = A0_TABLE[Number(e.target.value)]; if (x) upS({ a0: x.a0, intensity: x.A as 6 | 7 | 8 | 9, k1: k1Of(k1kind, x.A) }); }}>
+            {a0Key < 0 && <option value={-1}>a₀ = {sq.a0}</option>}
+            {A0_TABLE.map((x, k) => <option key={k} value={k}>A {x.A} / B {x.B} → a₀ = {x.a0}g</option>)}</select></label>
+          <Num id="seis-a0v" label="a₀, g" step={0.01} v={sq.a0 ?? 0.1} on={(v) => upS({ a0: v })} />
+          <label><span className="lbl">{t("seis_soil")}</span><select id="seis-soil" value={sq.soil ?? "II"} onChange={(e) => upS({ soil: e.target.value as SeismicInput["soil"] })}>{(["I", "II", "III"] as const).map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+          <label className="wide"><span className="lbl">{t("seis_k1")}</span><select id="seis-k1" value={k1kind} onChange={(e) => { set({ k1kind: e.target.value }); upS({ k1: k1Of(e.target.value, I) }); }}>
+            {Object.keys(K1_TABLE).map((k) => <option key={k} value={k}>{t(`seis_k1_${k}`)} · {k1Of(k, I)}</option>)}</select></label>
+          <Num id="seis-k1v" label="k₁" step={0.05} v={sq.k1 ?? k1Of(k1kind, I)} on={(v) => upS({ k1: v })} />
+          <label><span className="lbl">k₂ ({t("seis_k2")})</span><select id="seis-k2" value={sq.k2 ?? 1} onChange={(e) => upS({ k2: Number(e.target.value) })}>{[...new Set(K2)].sort().map((x) => <option key={x} value={x}>{x}</option>)}</select></label>
+          <Num id="seis-n" label={t("seis_storeys")} v={sq.storeys ?? 1} on={(v) => upS({ storeys: Math.max(1, Math.round(v)) })} />
+          <label className="chk wide"><input id="seis-kgr" type="checkbox" checked={!!sq.kgr} onChange={(e) => upS({ kgr: e.target.checked })} />{t("seis_kgr")}</label>
+          <label className="wide"><span className="lbl">{t("seis_level")}</span><select id="seis-level" value={sq.level ?? "PZ"} onChange={(e) => upS({ level: e.target.value as SeismicInput["level"] })}>{(["SZ", "PZ", "MRZ"] as const).map((x) => <option key={x} value={x}>{t(`seis_lvl_${x}`)}</option>)}</select></label>
+        </div> : <div className="grid2">
+          <Num id="seis-ag" label="a_gR, g" step={0.01} v={sq.agR ?? 0.1} on={(v) => upS({ agR: v })} />
+          <Num id="seis-gi" label="γ_I" step={0.1} v={sq.gammaI ?? 1} on={(v) => upS({ gammaI: v })} />
+          <label><span className="lbl">{t("seis_ground")}</span><select id="seis-gr" value={sq.ground ?? "B"} onChange={(e) => upS({ ground: e.target.value as SeismicInput["ground"] })}>{(["A", "B", "C", "D", "E"] as const).map((x) => <option key={x}>{x}</option>)}</select></label>
+          <label><span className="lbl">{t("seis_type")}</span><select id="seis-type" value={sq.spectrum ?? 1} onChange={(e) => upS({ spectrum: Number(e.target.value) as 1 | 2 })}><option value={1}>1</option><option value={2}>2</option></select></label>
+          <Num id="seis-q" label={t("seis_q")} step={0.5} v={sq.q ?? 1.5} on={(v) => upS({ q: Math.max(1, v) })} />
+          <Num id="seis-beta" label="β" step={0.05} v={sq.beta ?? 0.2} on={(v) => upS({ beta: v })} />
+        </div>}
+        <div className="seg wide seis-dirs" role="group">{(["x", "y", "z"] as const).map((d) => <button key={d} id={`seis-d${d}`} className={sq.dirs[d] ? "on" : ""} onClick={() => upS({ dirs: { ...sq.dirs, [d]: !sq.dirs[d] } })}>{t(`seis_dir_${d}`)}</button>)}</div>
+        <h4>{t(code === "DBN" ? "seis_coefDBN" : "seis_coefEN")}</h4>
+        <div className="grid3">{asm.cases.map((c) => <Num key={c.id} id={`seis-c-${c.id}`} label={`${c.label} · ${c.cat}`} step={0.05} v={sq.coef?.[c.id] ?? seisCoefDefault(code, c)} on={(v) => upS({ coef: { ...(sq.coef ?? {}), [c.id]: v } })} />)}</div>
+        <p className="hint">{t(code === "DBN" ? "seis_hintDBN" : "seis_hintEN")}</p>
+      </>}
+    </fieldset>
+  );
+  const sr = r?.seismic;
+  const seisRes = sr && (
+    <div className="panel seis-res"><h3>{t("seis_title")}</h3>
+      <table className="conn-values"><thead><tr><th>{t("seis_mode")}</th><th>T, s</th><th>f, Hz</th><th>M_eff X</th><th>M_eff Y</th><th>M_eff Z</th><th>S_a X/Y, g</th></tr></thead>
+        <tbody>{sr.modes.map((m, k) => <tr key={k} className={(s.mode ?? -1) === k ? "on" : ""} onClick={() => set({ mode: (s.mode ?? -1) === k ? -1 : k })}>
+          <td>{k + 1}</td><td className="mono">{m.T.toFixed(3)}</td><td className="mono">{(1 / m.T).toFixed(2)}</td>
+          {m.meff.map((v, d) => <td key={d} className="mono">{(v * 100).toFixed(1)}%</td>)}<td className="mono">{m.Sa[0].toFixed(3)}</td></tr>)}
+          <tr><td><b>Σ</b></td><td /><td />{sr.sum.map((v, d) => <td key={d} className={`mono ${v < (d === 2 ? 0.75 : 0.85) && sr.Mtot[d] ? "fail" : ""}`}><b>{(v * 100).toFixed(1)}%</b></td>)}<td /></tr></tbody></table>
+      <p className="hint">{t("seis_modeHint")}</p>
+      <table className="conn-values"><tbody>
+        <tr><td>{t("seis_mass")}</td><td className="mono">{sr.Mtot[0].toFixed(2)} t</td></tr>
+        <tr><td>{t("seis_vbase")}</td><td className="mono">{sr.Vbase.map((v) => (v / 1e3).toFixed(2)).join(" / ")} kN</td></tr>
+      </tbody></table>
+      {sr.warnings.map((w) => <p key={w} className="error">{w.startsWith("modalMass") ? t("seis_wMass").replace("{d}", w.split(":")[1].toUpperCase()).replace("{p}", w.split(":")[2]) : t("seis_wNoMass")}</p>)}
+      {sr.drift.length > 0 && <><h4>{t("seis_drift")}</h4>
+        <table className="conn-values"><thead><tr><th>{t("asm_member")}</th><th>{t("seis_driftR")}</th><th>{t("seis_driftL")}</th><th>{t("rep_maxutil")}</th></tr></thead>
+          <tbody>{[...sr.drift].sort((a, b) => b.util - a.util).slice(0, 8).map((d) => <tr key={d.member} className={utilState(d.util)}><td>{d.member}</td><td className="mono">1/{Math.round(1 / Math.max(d.ratio, 1e-9))}</td><td className="mono">1/{Math.round(1 / d.limit)}</td><td className="mono">{pct(d.util)}</td></tr>)}</tbody></table>
+        <p className="hint">{t(code === "DBN" ? "seis_driftHintDBN" : "seis_driftHintEN")}</p></>}
+    </div>
+  );
+
   // ---- результати
   const worst = r && [...r.members.map((m) => ({ k: "member" as const, id: m.member, ch: m.checks })), ...r.conns.map((c) => ({ k: "conn" as const, id: `${c.member} · ${c.end}`, ch: c.checks })), ...r.supports.map((x) => ({ k: "support" as const, id: x.node, ch: (x.result?.envelope ?? []) as (Check & { combo: string })[] })), ...r.plates.map((x) => ({ k: "plate" as const, id: x.panel, ch: x.checks }))]
     .map((x) => ({ ...x, u: govU(x.ch) })).reduce((a, b) => (!(b.u <= a.u) ? b : a));
@@ -437,7 +502,7 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
 
   const toolBtn = (k: AsmState["tool"]) => <button key={k} id={`tool-${k}`} className={s.tool === k ? "on" : ""} onClick={() => set({ tool: k, pending: [] })}>{t(`tool_${k}`)}</button>;
   const viewEl = (interactive: boolean) => (
-    <AsmView asm={asm} res={r} combo={comboRes} sel={s.sel} onPick={onPick} view={interactive ? s.view : "3d"} show={s.show} loadsOf={interactive ? s.loadsOf : undefined}
+    <AsmView asm={asm} res={r} combo={comboRes} sel={s.sel} onPick={onPick} view={interactive ? s.view : "3d"} show={modeOn && interactive ? "def" : s.show} loadsOf={interactive ? s.loadsOf : undefined}
       marks={[...(s.ids ? ["ids"] : []), ...s.pending.map((p) => `n:${p}`)]} interactive={interactive} t={t}
       onMoveNode={(id, p) => updNode(id, { x: Math.round(p[0]), y: Math.round(p[1]), z: Math.round(p[2]) })} onPlace={onPlace} />
   );
@@ -460,8 +525,9 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
             {asm.cases.length > 1 && <button className="icon" aria-label="remove" onClick={() => { const id = s.loadsOf || asm.cases[0].id; const cases = asm.cases.filter((c) => c.id !== id); set({ asm: { ...asm, cases, panelLoads: asm.panelLoads.filter((l) => l.case !== id) }, loadsOf: cases[0].id }); }}>×</button>}
           </div>
           {caseEd}
-          {r && <details className="gen-list"><summary>{t("nl_generated")}: {r.combos.length}</summary><ol>{r.combos.map((c) => <li key={c.name}><b>{c.name}</b> {c.kind === "SLS" ? `(${t("asm_sls")}) ` : ""}{c.text}</li>)}</ol></details>}
+          {r && <details className="gen-list"><summary>{t("nl_generated")}: {r.combos.length}</summary><ol>{r.combos.map((c) => <li key={c.name}><b>{c.name}</b> {c.kind === "SLS" ? `(${t("asm_sls")}) ` : c.kind === "SEIS" ? `(${t("seis_comb")}) ` : ""}{c.text}</li>)}</ol></details>}
         </fieldset>
+        {seisEd}
         {code === "DBN" && (
           <details className="adv"><summary>{t("advanced")}<span className="adv-hint">γc, γn</span></summary>
             <div className="adv-group"><div className="grid2">
@@ -481,6 +547,9 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
               <div className="seg" role="group">{(["3d", "xz", "yz", "xy"] as const).map((v) => <button key={v} id={`view-${v}`} className={s.view === v ? "on" : ""} onClick={() => set({ view: v })}>{t(`view_${v}`)}</button>)}</div>
               <select id="show" value={s.show} onChange={(e) => set({ show: e.target.value as ShowMode })}>{(["util", "My", "Mz", "N", "def", "none"] as const).map((x) => <option key={x} value={x}>{t(`show_${x}`)}</option>)}</select>
               {r && <select id="combo" value={ci} onChange={(e) => set({ combo: Number(e.target.value) })}>{ulsCombos.map((c, k) => <option key={c.name} value={k}>{t("nl_combo")} {c.name}{k === govIdx ? " ★" : ""}</option>)}</select>}
+              {r?.seismic && r.seismic.modes.length > 0 && <select id="mode" value={s.mode ?? -1} onChange={(e) => set({ mode: Number(e.target.value) })}>
+                <option value={-1}>{t("seis_noMode")}</option>
+                {r.seismic.modes.map((m, k) => <option key={k} value={k}>{t("seis_mode")} {k + 1} · T = {m.T.toFixed(3)} s</option>)}</select>}
               <label className="chk"><input type="checkbox" checked={s.ids} onChange={(e) => set({ ids: e.target.checked })} />{t("asm_ids")}</label>
             </div>
             {viewEl(true)}
@@ -493,6 +562,7 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
             {connTable && <div className="panel"><h3>{t("asm_joints")}</h3>{connTable}<p className="hint">{t("asm_jointsHint")}</p></div>}
             {plateTable && <div className="panel"><h3>{t("asm_plates")}</h3>{plateTable}<p className="hint">{t("asm_plateRes")}</p></div>}
             {supTable && <div className="panel"><h3>{t("asm_bases")}</h3>{supTable}</div>}
+            {seisRes}
           </>}
         </div>}
         {tab === "report" && r && (
@@ -518,11 +588,12 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
               <h2>{t("asm_method")}</h2>
               <p>{t("asm_methodText")}</p>
               <h2>{t("asm_loads")}</h2>
-              <ol>{r.combos.map((c) => <li key={c.name}><b>{c.name}</b> {c.kind === "SLS" ? `(${t("asm_sls")}) ` : ""}{c.text}</li>)}</ol>
+              <ol>{r.combos.map((c) => <li key={c.name}><b>{c.name}</b> {c.kind === "SLS" ? `(${t("asm_sls")}) ` : c.kind === "SEIS" ? `(${t("seis_comb")}) ` : ""}{c.text}</li>)}</ol>
               <h2>{t("asm_members")}</h2>{memberTable}
               {connTable && <><h2>{t("asm_joints")}</h2>{connTable}</>}
               {plateTable && <><h2>{t("asm_plates")}</h2>{plateTable}</>}
               {supTable && <><h2>{t("asm_bases")}</h2>{supTable}</>}
+              {sr && <><h2>{t("seis_title")}</h2><p>{t(code === "DBN" ? "seis_methodDBN" : "seis_methodEN")}</p>{seisRes}</>}
               <h2>{t("rep_checks")}</h2>
               {r.members.map((m) => <div key={m.member}><h3>{t("asm_member")} {m.member} · {m.section}</h3><CheckList checks={m.checks.map((c) => ({ ...c, clause: `${c.clause} · ${t("nl_combo")} ${c.combo}` }))} t={t} /></div>)}
               {r.conns.map((c) => <div key={`${c.member}${c.end}`}><h3>{t("asm_joint")} {c.member} · {c.end}</h3><CheckList checks={c.checks.map((x) => ({ ...x, clause: `${x.clause} · ${t("nl_combo")} ${x.combo}` }))} t={t} /></div>)}

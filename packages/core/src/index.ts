@@ -13,6 +13,7 @@ export * from "./loads/citiesUA";
 export * from "./codes/dbn198ecc";
 export * from "./design/columnDesign";
 export * from "./loads/combinations";
+export * from "./loads/seismic";
 export * from "./connections/bolts";
 export * from "./connections/welds";
 export * from "./connections/anchors";

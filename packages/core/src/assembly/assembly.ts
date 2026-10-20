@@ -12,7 +12,9 @@ import { steel } from "../catalog/materials";
 import type { Section } from "../geometry/sections";
 import { buildCombinations } from "../loads/combinations";
 import type { LoadCategory } from "../loads/combinations";
-import { combineFrame, solveFrame } from "../analysis/frame3d";
+import { combineFrame, frameModes, G_MM, solveFrame } from "../analysis/frame3d";
+import { driftLimit, rhoCQC, rhoDBN, seisSa } from "../loads/seismic";
+import type { SeismicInput } from "../loads/seismic";
 import type { Dof, FrameMember, FrameModel, FrameNode, FrameResult, LoadCase, MemberForces, MemberLoad, Vec3 } from "../analysis/frame3d";
 import { panelGeometry } from "../analysis/panels";
 import { shellVonMises } from "../analysis/shell";
@@ -90,6 +92,8 @@ export interface Assembly {
   panelLoads: PanelLoad[];
   cases: AsmCase[];
   gammaC?: number; gammaN?: number;
+  /** сейсмічний вплив (спектральний метод) */
+  seismic?: SeismicInput;
 }
 
 export interface MemberCheck { member: string; checks: (Check & { combo: string })[]; util: number; ok: boolean; section: string }
@@ -103,6 +107,22 @@ export interface PlateCheck {
   checks: (Check & { combo: string })[]; util: number; ok: boolean;
   /** максимальне σ_ef (МПа) і прогин пластини (SLS або ULS), мм */
   smax: number; wmax: number;
+}
+
+export interface SeisMode { T: number; meff: Vec3; Sa: Vec3 }
+export interface DriftCheck { member: string; ratio: number; limit: number; util: number }
+export interface AsmSeismic {
+  modes: SeisMode[];
+  /** сума ефективних мас за напрямками, частки */
+  sum: Vec3;
+  /** сумарна маса, т; поперечна сила в основі від сейсміки (комбінована), Н */
+  Mtot: Vec3; Vbase: Vec3;
+  /** форми для креслення: поле переміщень від сил ω²·M·φ (= φ, нормовано за масою) */
+  shapes: FrameResult[];
+  /** коефіцієнти сполучень / мас загружень */
+  coef: Record<string, number>;
+  drift: DriftCheck[];
+  warnings: string[];
 }
 
 export interface AsmResult {
@@ -119,6 +139,7 @@ export interface AsmResult {
   /** максимальне переміщення (SLS), мм */
   maxDisp: { node: string; v: number };
   sections: Record<string, Section>;
+  seismic?: AsmSeismic;
 }
 
 const SUPPORTS: Record<string, Partial<Record<Dof, boolean>>> = {
@@ -353,6 +374,44 @@ function plateInfo(a: Assembly, model: FrameModel, isPlate: Set<string>): PanelI
   });
 }
 
+/** Коефіцієнт сполучення (і маси) загруження для сейсміки: ДБН табл. 6.1 (сталь), EN 1990 (6.12b) ψ2; вітер, температура — 0 */
+export function seisCoefDefault(code: CodeId, c: AsmCase): number {
+  const tag = `${c.id} ${c.label} ${c.group ?? ""}`.toLowerCase();
+  if (/\bw\b|^w|wind|віт|вет|temp|темп/.test(tag)) return 0;
+  if (c.cat === "A") return 0;
+  if (code === "DBN") return c.cat === "G" ? 0.95 : c.cat === "L" ? 0.8 : 0.5;
+  if (c.cat === "G") return 1;
+  return /^s|snow|сн/.test(c.label.toLowerCase()) ? 0 : 0.3;
+}
+
+/** Квадратична форма відгуків за формами: √(Σ ρ_ij·v_i·v_j) для кожного числа поля (однакові станції) */
+function quadField(rs: FrameResult[], rho: number[][]): FrameResult {
+  const n = rs.length, f0 = rs[0];
+  const q = (get: (r: FrameResult) => number[]): number[] => {
+    const vs = rs.map(get);
+    return vs[0].map((_, k) => { let s = 0; for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (rho[i][j]) s += rho[i][j] * vs[i][k] * vs[j][k]; return Math.sqrt(Math.max(0, s)); });
+  };
+  const out: FrameResult = { u: {}, reactions: {}, members: {} };
+  for (const id of Object.keys(f0.u)) out.u[id] = q((r) => r.u[id]);
+  for (const id of Object.keys(f0.reactions)) out.reactions[id] = q((r) => r.reactions[id]);
+  if (f0.shells) {
+    out.shells = {};
+    for (const e of Object.keys(f0.shells)) {
+      const g = (r: FrameResult) => r.shells![e];
+      out.shells[e] = { c: q((r) => g(r).c), gp: [0, 1, 2, 3].map((k) => q((r) => g(r).gp[k])), corner: [0, 1, 2, 3].map((k) => q((r) => g(r).corner[k])), nodal: q((r) => g(r).nodal), svm: NaN };
+    }
+  }
+  for (const m of Object.keys(f0.members)) {
+    const mf0 = f0.members[m], g = (r: FrameResult) => r.members[m];
+    const mf: MemberForces = { x: mf0.x, N: q((r) => g(r).N), Vy: q((r) => g(r).Vy), Vz: q((r) => g(r).Vz), T: q((r) => g(r).T), My: q((r) => g(r).My), Mz: q((r) => g(r).Mz),
+      endI: q((r) => g(r).endI), endJ: q((r) => g(r).endJ), disp: [] };
+    const d = [0, 1, 2].map((c) => q((r) => g(r).disp.map((v) => v[c])));
+    mf.disp = mf0.x.map((_, k) => [d[0][k], d[1][k], d[2][k]] as Vec3);
+    out.members[m] = mf;
+  }
+  return out;
+}
+
 export function analyzeAssembly(a: Assembly): AsmResult {
   const gc = a.gammaC ?? 1, gn = a.gammaN ?? 1;
   const { model: base, sections } = toFrame(a);
@@ -389,11 +448,24 @@ export function analyzeAssembly(a: Assembly): AsmResult {
     return Object.values(r.members).reduce((s, m) => Math.max(s, absMax(m.My), absMax(m.Mz), absMax(m.N) * 100), 0);
   });
   const all = buildCombinations(loads, { code: a.code, gammaG: GF_DEFAULT[a.code].G, gammaQ: GF_DEFAULT[a.code].Q, influence });
-  const combos = all.map((c, k) => ({ name: `${c.kind === "SLS" ? "s" : c.kind === "ACC" ? "A" : ""}${k + 1}`, text: c.text, kind: c.kind,
+  const combos: { name: string; text: string; kind: string; factors: Record<string, number> }[] = all.map((c, k) => ({ name: `${c.kind === "SLS" ? "s" : c.kind === "ACC" ? "A" : ""}${k + 1}`, text: c.text, kind: c.kind as string,
     factors: Object.fromEntries(a.cases.map((cs, q) => [cs.id, c.factors[q]])) }));
   const ulsC = combos.filter((c) => c.kind !== "SLS"), slsC = combos.filter((c) => c.kind === "SLS");
-  const uls = ulsC.map((c) => combineFrame(res, c.factors));
+  const ulsStat = ulsC.map((c) => combineFrame(res, c.factors));
   const sls = slsC.map((c) => combineFrame(res, c.factors));
+  // ---- сейсміка: власні форми → спектральні сили за формами → сполучення форм і напрямків → аварійне сполучення ± E
+  const seis = a.seismic?.on ? seismicPart(a, model, lcs, split, res) : undefined;
+  const seisC = seis ? seis.combos : [];
+  combos.push(...seisC.map((c) => ({ name: c.name, text: c.text, kind: "SEIS", factors: c.factors })));
+  ulsC.push(...seisC.map((c) => ({ name: c.name, text: c.text, kind: "SEIS", factors: c.factors })));
+  // коефіцієнт m (ДБН В.1.1-12, табл. 6.13; ф. 6.12 — сейсмічна частка ділиться на m): сталь 1.3, шви 1.0, болти 1.1
+  const byM = new Map<number, FrameResult[]>();
+  const ulsBy = (mk: number) => {
+    const m = a.code === "DBN" ? mk : 1;
+    if (!byM.has(m)) byM.set(m, [...ulsStat, ...seisC.map((c) => combineFrame({ ...res, __E: seis!.E }, { ...c.factors, __E: c.sign / m }))]);
+    return byM.get(m)!;
+  };
+  const uls = ulsBy(1);
   // перевірки стрижнів і стиків — огинаюча за сполученнями
   const env = (list: { combo: string; checks: Check[] }[]) => {
     const m = new Map<string, Check & { combo: string }>();
@@ -408,14 +480,14 @@ export function analyzeAssembly(a: Assembly): AsmResult {
   const members: MemberCheck[] = a.members.map((m) => {
     const s = sections[m.id], ni = P.get(m.i)!, nj = P.get(m.j)!;
     const L = Math.hypot(nj.x - ni.x, nj.y - ni.y, nj.z - ni.z);
-    const e = env(uls.map((r, k) => ({ combo: ulsC[k].name, checks: memberChecks(a.code, s, m.steel, r.members[m.id], L, m.mu ?? { y: 1, z: 1 }, gc, gn) })));
+    const e = env(ulsBy(1.3).map((r, k) => ({ combo: ulsC[k].name, checks: memberChecks(a.code, s, m.steel, r.members[m.id], L, m.mu ?? { y: 1, z: 1 }, gc, gn) })));
     return { member: m.id, section: s.name, ...e };
   });
   const conns: ConnCheck[] = [];
   for (const m of a.members) for (const [end, ec] of [["i", m.endI], ["j", m.endJ]] as ["i" | "j", EndConn][]) {
     if (ec.kind === "none") continue;
     const s = sections[m.id];
-    const e = env(uls.map((r, k) => {
+    const e = env(ulsBy(ec.kind === "weld" ? 1 : 1.1).map((r, k) => {
       const mf = r.members[m.id], F = end === "i" ? mf.endI : mf.endJ.map((v) => -v);
       return { combo: ulsC[k].name, checks: connChecks(a.code, s, m.steel, ec, F, gc, gn) };
     }));
@@ -447,7 +519,7 @@ export function analyzeAssembly(a: Assembly): AsmResult {
     const st = steel(mi.steel), t = mi.t;
     const R = a.code === "DBN" ? 1.15 * st.strength(t, "sheet") * gc : st.yieldChar(t, "sheet");
     let best = { s: 0, combo: "", el: "" };
-    uls.forEach((r, k) => {
+    ulsBy(1.3).forEach((r, k) => {
       for (const row of mi.elems) for (const id of row) {
         const sf = r.shells?.[id];
         if (!sf) continue;
@@ -466,10 +538,87 @@ export function analyzeAssembly(a: Assembly): AsmResult {
   });
   let maxDisp = { node: "", v: 0 };
   for (const r of sls.length ? sls : uls) for (const [id, u] of Object.entries(r.u)) { const v = Math.hypot(u[0], u[1], u[2]); if (v > maxDisp.v) maxDisp = { node: id, v }; }
-  const utils = [...members.map((m) => m.util), ...conns.map((c) => c.util), ...supports.map((s) => s.result?.maxUtil ?? 0), ...plates.map((p) => p.util)];
+  const utils = [...members.map((m) => m.util), ...conns.map((c) => c.util), ...supports.map((s) => s.result?.maxUtil ?? 0), ...plates.map((p) => p.util), ...(seis?.out.drift.map((d) => d.util) ?? [])];
   return {
-    combos, uls, sls, members, conns, supports, plates, panels: [...pan.info, ...plateInfo(a, base, isPlate)], sections, maxDisp,
+    combos, uls, sls, members, conns, supports, plates, panels: [...pan.info, ...plateInfo(a, base, isPlate)], sections, maxDisp, seismic: seis?.out,
     maxUtil: utils.some((x) => Number.isNaN(x)) ? NaN : Math.max(0, ...utils),
-    ok: members.every((m) => m.ok) && conns.every((c) => c.ok) && plates.every((p) => p.ok) && supports.every((s) => !s.error && (s.result?.ok ?? true)),
+    ok: (seis?.out.drift.every((d) => d.util <= 1 + 1e-9) ?? true) && members.every((m) => m.ok) && conns.every((c) => c.ok) && plates.every((p) => p.ok) && supports.every((s) => !s.error && (s.result?.ok ?? true)),
   };
+}
+
+function seismicPart(a: Assembly, model: FrameModel, lcs: LoadCase[], split: Map<string, { id: string; x0: number; L: number }[]>, res: Record<string, FrameResult>) {
+  const S = a.seismic!, code = a.code, warnings: string[] = [];
+  const coef: Record<string, number> = Object.fromEntries(a.cases.map((c) => [c.id, S.coef?.[c.id] ?? seisCoefDefault(code, c)]));
+  // маси: ДБН — розрахункові значення з коефіцієнтами табл. 6.1 (6.1.1); EN — G + Σψ_E·Q (ψ_E = ψ2)
+  const gfOf = (c: AsmCase) => (code === "DBN" ? c.gf ?? GF_DEFAULT[code][c.cat] : 1);
+  const massCases = lcs.map((lc, k) => ({ lc, c: coef[a.cases[k].id] * gfOf(a.cases[k]) }));
+  const dirs = ([0, 1, 2] as const).filter((d) => (d === 0 ? S.dirs.x : d === 1 ? S.dirs.y : S.dirs.z));
+  let nm = Math.max(1, S.nModes ?? 12);
+  let modal = frameModes(model, massCases, nm);
+  const enough = (mr: typeof modal) => dirs.every((d) => !mr.Mtot[d] || mr.modes.reduce((s, m) => s + m.meff[d], 0) >= (d === 2 ? 0.75 : 0.85));
+  while (!enough(modal) && modal.modes.length === nm && nm < 60) { nm = Math.min(60, nm * 2); modal = frameModes(model, massCases, nm); }
+  const modes = modal.modes;
+  const sum: Vec3 = [0, 1, 2].map((d) => modes.reduce((s, m) => s + m.meff[d], 0)) as Vec3;
+  for (const d of dirs) if (modal.Mtot[d] && sum[d] < (d === 2 ? 0.75 : 0.85)) warnings.push(`modalMass:${"xyz"[d]}:${Math.round(sum[d] * 100)}`);
+  if (!modes.length) warnings.push("noMass");
+  const Sa = modes.map((m) => [0, 1, 2].map((d) => seisSa(code, S, m.T, d === 2)) as Vec3);
+  // кореляція форм: ДБН — сусідні форми з різницею періодів < 10 % (6.7, табл. 6.9); EN — CQC
+  const n = modes.length;
+  const rho = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => {
+    if (i === j) return 1;
+    if (code === "EN") return rhoCQC(modes[i].T, modes[j].T);
+    return Math.abs(i - j) === 1 ? rhoDBN(Math.min(modes[i].T, modes[j].T) / Math.max(modes[i].T, modes[j].T)) : 0;
+  }));
+  // сили за формами: F_k = m_k·φ_k·Γ_i·Sa_i·g
+  const cases: LoadCase[] = [];
+  for (const d of dirs) modes.forEach((m, i) => {
+    const nodal = Object.entries(modal.mass).map(([node, mk]) => {
+      const ph = m.phi[node], k = mk * m.gamma[d] * Sa[i][d] * G_MM;
+      return { node, F: [k * ph[0], k * ph[1], k * ph[2], 0, 0, 0] };
+    });
+    cases.push({ id: `E${d}_${i}`, nodal });
+  });
+  // форми для креслення: K·u = ω²·M·φ → u = φ
+  modes.forEach((m, i) => cases.push({ id: `M_${i}`, nodal: Object.entries(modal.mass).map(([node, mk]) => ({ node, F: [0, 1, 2].map((c) => mk * m.omega ** 2 * m.phi[node][c]).concat([0, 0, 0]) })) }));
+  let shapes: FrameResult[] = [];
+  let E: FrameResult | undefined;
+  const drift: DriftCheck[] = [];
+  const Vbase: Vec3 = [0, 0, 0];
+  if (modes.length) {
+    const r = solveFrame(model, cases);
+    for (const x of Object.values(r)) mergeParts(x, split);
+    shapes = modes.map((_, i) => r[`M_${i}`]);
+    const perDir = dirs.map((d) => quadField(modes.map((_, i) => r[`E${d}_${i}`]), rho));
+    E = !perDir.length ? undefined : perDir.length === 1 ? perDir[0] : quadField(perDir, perDir.map((_, i) => perDir.map((_, j) => (i === j ? 1 : 0))));
+    // поперечна сила в основі за кожним напрямком: V_i = Γ_i²·Sa_i·g
+    for (const d of dirs) {
+      const v = modes.map((m, i) => m.gamma[d] * m.gamma[d] * Sa[i][d] * G_MM);
+      Vbase[d] = Math.sqrt(Math.max(0, v.reduce((s, vi, i) => s + v.reduce((t, vj, j) => t + rho[i][j] * vi * vj, 0), 0)));
+    }
+    // перекоси вертикальних стрижнів (колон): пружні переміщення — ДБН ÷ k1, EN × q
+    const amp = code === "EN" ? S.q ?? 1.5 : 1 / (S.k1 ?? 0.25);
+    const lim = driftLimit(code, S);
+    const P = new Map(a.nodes.map((x) => [x.id, x]));
+    for (const mb of a.members) {
+      const ni = P.get(mb.i)!, nj = P.get(mb.j)!, dz = Math.abs(nj.z - ni.z), L = Math.hypot(nj.x - ni.x, nj.y - ni.y, nj.z - ni.z);
+      if (dz < 0.9 * L || dz < 1) continue;
+      let worst = 0;
+      for (const c of [0, 1]) {
+        const per = dirs.filter((d) => d !== 2).map((d) => {
+          const v = modes.map((_, i) => { const x = r[`E${d}_${i}`]; return ((x.u[mb.j]?.[c] ?? 0) - (x.u[mb.i]?.[c] ?? 0)) / dz; });
+          return v.reduce((s, vi, i) => s + v.reduce((t, vj, j) => t + rho[i][j] * vi * vj, 0), 0);
+        });
+        worst = Math.max(worst, Math.sqrt(Math.max(0, per.reduce((s, x) => s + x, 0))));
+      }
+      const ratio = worst * amp;
+      drift.push({ member: mb.id, ratio, limit: lim, util: ratio / lim });
+    }
+  }
+  // аварійне сполучення: ДБН — γf·c·P (табл. 6.1), EN — G + ψ2·Q; ± E
+  const fac: Record<string, number> = Object.fromEntries(a.cases.map((c) => [c.id, coef[c.id] * gfOf(c)]));
+  const txt = a.cases.filter((c) => fac[c.id]).map((c) => `${Math.round(fac[c.id] * 1000) / 1000}·${c.label}`).join(" + ");
+  const dl = dirs.map((d) => "XYZ"[d]).join(",");
+  const combos = E ? [1, -1].map((sg) => ({ name: sg > 0 ? "E+" : "E−", text: `${txt} ${sg > 0 ? "+" : "−"} E(${dl})`, factors: fac, sign: sg })) : [];
+  const out: AsmSeismic = { modes: modes.map((m, i) => ({ T: m.T, meff: m.meff, Sa: Sa[i] })), sum, Mtot: modal.Mtot, Vbase, shapes, coef, drift, warnings };
+  return { out, E: E!, combos };
 }

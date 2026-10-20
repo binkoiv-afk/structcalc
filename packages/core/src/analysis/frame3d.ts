@@ -233,7 +233,8 @@ function memberLoadFns(m: FrameMember, P: Prepared, lc: LoadCase) {
   return { dist, pts };
 }
 
-export function solveFrame(model: FrameModel, cases: LoadCase[], stations = 41): Record<string, FrameResult> {
+/** Збірка і розклад матриці жорсткості (спільне для статики і власних коливань) */
+function buildFrame(model: FrameModel) {
   const idx = new Map(model.nodes.map((n, k) => [n.id, k]));
   const nd = model.nodes.length * 6;
   const pos = (id: string): Vec3 => { const n = model.nodes[idx.get(id)!]; return [n.x, n.y, n.z]; };
@@ -337,6 +338,8 @@ export function solveFrame(model: FrameModel, cases: LoadCase[], stations = 41):
     // повороти вузлів, де всі стрижні шарнірні, — крихітна пружина, щоб матриця не була виродженою
     if (g % 6 >= 3) A[at(r, r)] += kmax * 1e-12 + 1e-6;
   }
+  const kdiag = new Float64Array(nf);
+  for (let r = 0; r < nf; r++) kdiag[r] = A[at(r, r)];
   // профільний розклад Холецького (на місці)
   for (let r = 0; r < nf; r++) {
     const fr = first[r], pr = ptr[r] - fr;
@@ -380,6 +383,13 @@ export function solveFrame(model: FrameModel, cases: LoadCase[], stations = 41):
     free.forEach((g, r) => { if (g % 6 < 3 && Math.abs(xp[r]) > wv) { wv = Math.abs(xp[r]); worst = g; } });
     if (worst >= 0 && wv > 1e4) throw new Error(`mechanism:${model.nodes[Math.floor(worst / 6)].id}:${DOFS[worst % 6]}`);
   }
+  /** розв'язок для вектора у нумерації рівнянь (довжина nf) */
+  const solveEq = (b: Float64Array) => { const F = new Float64Array(nd); free.forEach((g, r) => (F[g] = b[r])); return solveVec(F); };
+  return { idx, nd, pos, prep, shells, sprep, dofsOf, dofsOfNodes, free, eq, nf, kdiag, solveVec, solveEq };
+}
+
+export function solveFrame(model: FrameModel, cases: LoadCase[], stations = 41): Record<string, FrameResult> {
+  const { idx, nd, prep, shells, sprep, dofsOf, dofsOfNodes, free, solveVec } = buildFrame(model);
   const out: Record<string, FrameResult> = {};
   for (const lc of cases) {
     const F = new Float64Array(nd);
@@ -578,4 +588,142 @@ export function interp(xs: number[], ys: number[], x: number): number {
     return d < 1e-9 ? ys[i] : ys[i - 1] + ((ys[i] - ys[i - 1]) * (x - xs[i - 1])) / d;
   }
   return ys[ys.length - 1];
+}
+
+/** Вектор вузлових сил загруження (глобальні, по 6 на вузол) — еквівалентні сили від навантажень на стрижні й оболонки */
+function loadVector(model: FrameModel, B: ReturnType<typeof buildFrame>, lc: LoadCase): Float64Array {
+  const F = new Float64Array(B.nd);
+  for (const nl of lc.nodal ?? []) { const k = B.idx.get(nl.node); if (k === undefined) continue; for (let q = 0; q < 6; q++) F[k * 6 + q] += nl.F[q] ?? 0; }
+  for (const m of model.members) {
+    const P = B.prep.get(m.id)!, loads = memberLoadFns(m, P, lc);
+    const fFull = new Array(12).fill(0);
+    for (const dl of loads.dist) eqLoads(P.L, dl.a, dl.b, dl.p).forEach((v, q) => (fFull[q] += v));
+    for (const pl of loads.pts) eqPoint(P.L, pl.a, pl.P).forEach((v, q) => (fFull[q] += v));
+    const { f } = condense(P.kFull, fFull, P.rel), d = B.dofsOf(m);
+    for (let b = 0; b < 4; b++) { const g = toGlobal(P.R, [f[b * 3], f[b * 3 + 1], f[b * 3 + 2]]); for (let r = 0; r < 3; r++) F[d[b * 3 + r]] += g[r]; }
+  }
+  for (const e of B.shells) {
+    const ls = (lc.shellLoads ?? []).filter((l) => l.shell === e.id);
+    if (!ls.length && !(lc.selfWeight && e.rho)) continue;
+    const f = shellLoadVector(e, B.sprep.get(e.id)!, ls, lc.selfWeight ?? 0);
+    B.dofsOfNodes(e.nodes).forEach((g, q) => (F[g] += f[q]));
+  }
+  return F;
+}
+
+export interface FrameMode {
+  /** період, с; кругова частота, рад/с */
+  T: number; omega: number;
+  /** форма, нормована за масою (φᵀMφ = 1): переміщення вузлів [ux, uy, uz, rx, ry, rz] */
+  phi: Record<string, number[]>;
+  /** коефіцієнти участі Γ = φᵀ·M·r (x, y, z) і частки ефективної маси Γ²/ΣM */
+  gamma: Vec3; meff: Vec3;
+}
+export interface ModalResult {
+  modes: FrameMode[];
+  /** зосереджені маси вузлів, т (Н·с²/мм) */
+  mass: Record<string, number>;
+  /** сумарна маса вільних вузлів за напрямками, т */
+  Mtot: Vec3;
+}
+export const G_MM = 9810; // мм/с²
+
+/** Власні коливання: маси — з вертикальних (−Z) сил загружень з коефіцієнтами; ітерації в підпросторі */
+export function frameModes(model: FrameModel, mass: { lc: LoadCase; c: number }[], nModes = 12): ModalResult {
+  const B = buildFrame(model);
+  const { nf, free, nd } = B;
+  const mv = new Float64Array(nd);
+  for (const { lc, c } of mass) {
+    if (!c) continue;
+    const F = loadVector(model, B, lc);
+    for (let k = 0; k < model.nodes.length; k++) { const w = -F[k * 6 + 2] * c; if (w > 0) for (let q = 0; q < 3; q++) mv[k * 6 + q] += w / G_MM; }
+  }
+  const m = new Float64Array(nf);
+  free.forEach((g, r) => (m[r] = mv[g]));
+  const massNode: Record<string, number> = {};
+  model.nodes.forEach((n, k) => { if (mv[k * 6]) massNode[n.id] = mv[k * 6]; });
+  const Mtot: Vec3 = [0, 0, 0];
+  free.forEach((g, r) => { if (g % 6 < 3) Mtot[g % 6] += m[r]; });
+  const mdofs = [...Array(nf).keys()].filter((r) => m[r] > 0);
+  const q = Math.min(nModes, mdofs.length);
+  if (!q) return { modes: [], mass: massNode, Mtot };
+  const p = Math.min(mdofs.length, Math.max(2 * q, q + 8));
+  // початкові вектори: розподіл мас за напрямками, далі — ступені з найбільшим m/k
+  let X: Float64Array[] = [];
+  for (let d = 0; d < 3; d++) { const v = new Float64Array(nf); let any = false; free.forEach((g, r) => { if (g % 6 === d && m[r]) { v[r] = m[r]; any = true; } }); if (any) X.push(v); }
+  const byRatio = [...mdofs].sort((a, b) => m[b] / B.kdiag[b] - m[a] / B.kdiag[a]);
+  for (const r of byRatio) { if (X.length >= p) break; const v = new Float64Array(nf); v[r] = 1; X.push(v); }
+  let seed = 12345;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648) - 0.5;
+  let lam: number[] = [], V: number[][] = [];
+  for (let it = 0; it < 80; it++) {
+    // Xb = K⁻¹ M X; Y = M X (= K Xb)
+    let Y = X.map((x) => { const y = new Float64Array(nf); for (const r of mdofs) y[r] = m[r] * x[r]; return y; });
+    let Xb = Y.map((y) => B.solveEq(y));
+    // M-ортонормування (Грам–Шмідт), ті самі дії над Y
+    const keepX: Float64Array[] = [], keepY: Float64Array[] = [];
+    for (let j = 0; j < Xb.length; j++) {
+      const x = Xb[j], y = Y[j];
+      for (let pass = 0; pass < 2; pass++) for (let k = 0; k < keepX.length; k++) {
+        let s = 0; for (const r of mdofs) s += keepX[k][r] * m[r] * x[r];
+        for (let r = 0; r < nf; r++) { x[r] -= s * keepX[k][r]; y[r] -= s * keepY[k][r]; }
+      }
+      let nrm = 0; for (const r of mdofs) nrm += m[r] * x[r] * x[r];
+      nrm = Math.sqrt(nrm);
+      if (!(nrm > 1e-14)) continue;
+      for (let r = 0; r < nf; r++) { x[r] /= nrm; y[r] /= nrm; }
+      keepX.push(x); keepY.push(y);
+    }
+    Xb = keepX; Y = keepY;
+    const n = Xb.length;
+    const Kr = Array.from({ length: n }, (_, a) => Array.from({ length: n }, (_, b) => { let s = 0; for (let r = 0; r < nf; r++) s += Xb[a][r] * Y[b][r]; return s; }));
+    for (let a = 0; a < n; a++) for (let b = 0; b < a; b++) { const v = (Kr[a][b] + Kr[b][a]) / 2; Kr[a][b] = Kr[b][a] = v; }
+    // власні значення Kr — це 1/λ відносно K⁻¹M; тут Kr = Xbᵀ K Xb, тож λ = ω²
+    const { values, vectors } = jacobiEig(Kr);
+    const ord = values.map((v, k) => k).sort((a, b) => values[a] - values[b]);
+    const lamNew = ord.map((k) => values[k]);
+    V = ord.map((k) => vectors.map((row) => row[k]));
+    X = V.map((v) => { const x = new Float64Array(nf); v.forEach((c, k) => { if (c) for (let r = 0; r < nf; r++) x[r] += c * Xb[k][r]; }); return x; });
+    // доповнення до p векторів (якщо щось відкинуто)
+    while (X.length < Math.min(p, mdofs.length)) { const v = new Float64Array(nf); for (const r of mdofs) v[r] = rnd(); X.push(v); }
+    const conv = lam.length >= q && lamNew.slice(0, q).every((l, k) => Math.abs(l - lam[k]) <= 1e-7 * Math.abs(l) + 1e-12);
+    lam = lamNew;
+    if (conv) break;
+  }
+  const modes: FrameMode[] = [];
+  for (let k = 0; k < q && k < lam.length; k++) {
+    const x = X[k], om = Math.sqrt(Math.max(lam[k], 1e-12));
+    // нормування за масою (після останньої ітерації X — комбінації M-ортонормованих векторів)
+    let nrm = 0; for (const r of mdofs) nrm += m[r] * x[r] * x[r];
+    nrm = Math.sqrt(nrm) || 1;
+    const full = new Float64Array(nd);
+    free.forEach((g, r) => (full[g] = x[r] / nrm));
+    const gamma: Vec3 = [0, 0, 0];
+    for (let g = 0; g < nd; g++) if (g % 6 < 3) gamma[g % 6] += mv[g] * full[g];
+    // знак: найбільша складова участі додатна
+    const big = [0, 1, 2].reduce((a, b) => (Math.abs(gamma[b]) > Math.abs(gamma[a]) ? b : a), 0), sg = gamma[big] < 0 ? -1 : 1;
+    const phi: Record<string, number[]> = {};
+    model.nodes.forEach((n, j) => (phi[n.id] = Array.from(full.slice(j * 6, j * 6 + 6), (v) => v * sg)));
+    modes.push({ T: (2 * Math.PI) / om, omega: om, phi, gamma: gamma.map((g) => g * sg) as Vec3, meff: gamma.map((g, d) => (Mtot[d] ? (g * g) / Mtot[d] : 0)) as Vec3 });
+  }
+  return { modes, mass: massNode, Mtot };
+}
+
+/** Власні значення симетричної матриці (метод Якобі) */
+function jacobiEig(A0: number[][]) {
+  const n = A0.length, A = A0.map((r) => [...r]), Vv: number[][] = Array.from({ length: n }, (_, i) => Array.from({ length: n }, (_, j) => (i === j ? 1 : 0)));
+  for (let sweep = 0; sweep < 100; sweep++) {
+    let off = 0, tot = 0;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { const v = A[i][j] * A[i][j]; if (i !== j) off += v; tot += v; }
+    if (off <= 1e-24 * tot) break;
+    for (let p = 0; p < n - 1; p++) for (let q = p + 1; q < n; q++) {
+      if (Math.abs(A[p][q]) < 1e-300) continue;
+      const th = (A[q][q] - A[p][p]) / (2 * A[p][q]);
+      const t = Math.sign(th || 1) / (Math.abs(th) + Math.sqrt(th * th + 1)), c = 1 / Math.sqrt(t * t + 1), s = t * c;
+      for (let k = 0; k < n; k++) { const akp = A[k][p], akq = A[k][q]; A[k][p] = c * akp - s * akq; A[k][q] = s * akp + c * akq; }
+      for (let k = 0; k < n; k++) { const apk = A[p][k], aqk = A[q][k]; A[p][k] = c * apk - s * aqk; A[q][k] = s * apk + c * aqk; }
+      for (let k = 0; k < n; k++) { const vkp = Vv[k][p], vkq = Vv[k][q]; Vv[k][p] = c * vkp - s * vkq; Vv[k][q] = s * vkp + c * vkq; }
+    }
+  }
+  return { values: A.map((r, i) => r[i]), vectors: Vv };
 }
