@@ -576,3 +576,11 @@ input.num-expr { border-color: var(--accent) !important; box-shadow: 0 0 0 2px v
 .saved-foot { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
 @media (max-width: 560px) { .fm-label { display: none; } .saved-list { grid-template-columns: minmax(0, 1fr); } .fm-pop { position: fixed; left: 16px; right: 16px; top: 100px; width: auto; } }
 @media print { .toast, .file-menu, .seg.undo { display: none !important; } }
+/* v23: стійкість системи */
+.so-big { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 10px 12px; border-radius: 8px; background: var(--soft); border-left: 4px solid var(--line); margin-bottom: 8px; }
+.so-big b { font-size: 24px; }
+.so-big.ok { border-left-color: var(--ok); } .so-big.warn { border-left-color: var(--warn); } .so-big.fail { border-left-color: var(--fail); }
+.so-big .eyebrow { align-self: center; text-transform: none; }
+.so-big button.ghost { margin-left: auto; align-self: center; }
+.so-big button.ghost.on { background: var(--accent-soft); }
+.so-res tr.ok td:nth-child(2) { color: var(--ok); } .so-res tr.warn td:nth-child(2) { color: var(--warn); } .so-res tr.fail td:nth-child(2) { color: var(--fail); }

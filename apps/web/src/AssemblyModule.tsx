@@ -154,8 +154,10 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
     return best;
   })();
   const ci = s.combo >= 0 && s.combo < uls.length ? s.combo : govIdx;
-  const modeOn = r?.seismic && (s.mode ?? -1) >= 0 && (s.mode ?? -1) < r.seismic.shapes.length;
-  const comboRes = modeOn ? r!.seismic!.shapes[s.mode!] : uls[ci];
+  const stb = r?.stability;
+  const buckOn = !!stb?.shape && s.mode === -2;
+  const modeOn = buckOn || (r?.seismic && (s.mode ?? -1) >= 0 && (s.mode ?? -1) < r.seismic.shapes.length);
+  const comboRes = buckOn ? stb!.shape! : modeOn ? r!.seismic!.shapes[s.mode!] : uls[ci];
 
   // ---- картки редагування
   const memberIds = asm.members.map((m) => m.id), nodeIds = asm.nodes.map((n) => n.id);
@@ -386,6 +388,33 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
       </>}
     </fieldset>
   );
+  // ---- стійкість і деформована схема
+  const so = asm.secondOrder ?? { on: false };
+  const soEd = (
+    <fieldset className="so"><legend><span className="step">4</span>{t("so_title")}</legend>
+      <label className="chk"><input id="so-on" type="checkbox" checked={so.on} onChange={(e) => setAsm({ secondOrder: { ...so, on: e.target.checked } })} />{t("so_on")}</label>
+      {so.on && <div className="grid2">
+        <Num id="so-phi" label={t("so_phi")} step={10} v={so.phiInv ?? ""} ph={stb ? String(Math.round(1 / stb.phiDefault)) : "200"} on={(v) => setAsm({ secondOrder: { ...so, phiInv: v > 0 ? v : undefined } })} />
+      </div>}
+      <p className="hint">{t(so.on ? "so_hintOn" : "so_hintOff")}</p>
+    </fieldset>
+  );
+  const stState = (a: number) => (a >= 10 ? "ok" : a >= 3 ? "warn" : "fail");
+  const stRes = stb && (
+    <div className="panel so-res"><h3>{t("so_title")}</h3>
+      <div className={`so-big ${stb.on && stb.min >= 1 ? "ok" : stState(stb.min)}`}>
+        <span className="eyebrow">α_cr min</span><b className="mono">{Number.isFinite(stb.min) ? stb.min.toFixed(2) : "∞"}</b>
+        <span>{t("nl_combo")} {stb.minCombo}</span>
+        {stb.shape && <button id="so-shape" className={`ghost ${buckOn ? "on" : ""}`} onClick={() => set({ mode: buckOn ? -1 : -2, show: "def" })}>{buckOn ? t("so_hideShape") : t("so_showShape")}</button>}
+      </div>
+      <p className={stb.on ? "hint" : stb.min < 10 ? "error" : "hint"}>{t(stb.min < 1 ? "so_unstable" : stb.on ? "so_doneOn" : stb.min < 3 ? "so_need3" : stb.min < 10 ? "so_need10" : "so_ok10").replace("{phi}", `1/${Math.round(1 / stb.phi)}`)}</p>
+      {!stb.on && stb.min < 10 && stb.min >= 1 && <button id="so-enable" className="primary" onClick={() => setAsm({ secondOrder: { ...so, on: true } })}>{t("so_enable")}</button>}
+      {stb.warnings.filter((w) => w.startsWith("unstable") || w.startsWith("noconv")).map((w) => <p key={w} className="error">{t(w.startsWith("unstable") ? "so_wUnstable" : "so_wNoconv").replace("{c}", w.split(":")[1])}</p>)}
+      <details className="gen-list"><summary>α_cr {t("so_byCombo")}</summary>
+        <table className="conn-values"><tbody>{stb.alpha.map((x, k) => <tr key={x.combo} className={stState(x.alpha)}><td>{t("nl_combo")} {x.combo}</td><td className="mono">{Number.isFinite(x.alpha) ? x.alpha.toFixed(2) : "∞"}</td>
+          {stb.iters && <td className="mono">{stb.iters[k] > 1 ? `${t("so_iter")} ${stb.iters[k]}` : stb.iters[k] === 1 ? t("so_lin") : ""}</td>}</tr>)}</tbody></table></details>
+    </div>
+  );
   const sr = r?.seismic;
   const seisRes = sr && (
     <div className="panel seis-res"><h3>{t("seis_title")}</h3>
@@ -529,6 +558,7 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
           {r && <details className="gen-list"><summary>{t("nl_generated")}: {r.combos.length}</summary><ol>{r.combos.map((c) => <li key={c.name}><b>{c.name}</b> {c.kind === "SLS" ? `(${t("asm_sls")}) ` : c.kind === "SEIS" ? `(${t("seis_comb")}) ` : ""}{c.text}</li>)}</ol></details>}
         </fieldset>
         {seisEd}
+        {soEd}
         {code === "DBN" && (
           <details className="adv"><summary>{t("advanced")}<span className="adv-hint">γc, γn</span></summary>
             <div className="adv-group"><div className="grid2">
@@ -548,9 +578,10 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
               <div className="seg" role="group">{(["3d", "xz", "yz", "xy"] as const).map((v) => <button key={v} id={`view-${v}`} className={s.view === v ? "on" : ""} onClick={() => set({ view: v })}>{t(`view_${v}`)}</button>)}</div>
               <select id="show" value={s.show} onChange={(e) => set({ show: e.target.value as ShowMode })}>{(["util", "My", "Mz", "N", "def", "none"] as const).map((x) => <option key={x} value={x}>{t(`show_${x}`)}</option>)}</select>
               {r && <select id="combo" value={ci} onChange={(e) => set({ combo: Number(e.target.value) })}>{ulsCombos.map((c, k) => <option key={c.name} value={k}>{t("nl_combo")} {c.name}{k === govIdx ? " ★" : ""}</option>)}</select>}
-              {r?.seismic && r.seismic.modes.length > 0 && <select id="mode" value={s.mode ?? -1} onChange={(e) => set({ mode: Number(e.target.value) })}>
+              {((r?.seismic && r.seismic.modes.length > 0) || stb?.shape) && <select id="mode" value={modeOn ? s.mode ?? -1 : -1} onChange={(e) => set({ mode: Number(e.target.value) })}>
                 <option value={-1}>{t("seis_noMode")}</option>
-                {r.seismic.modes.map((m, k) => <option key={k} value={k}>{t("seis_mode")} {k + 1} · T = {m.T.toFixed(3)} s</option>)}</select>}
+                {stb?.shape && <option value={-2}>{t("so_mode")} · α_cr = {stb.min.toFixed(2)}</option>}
+                {r?.seismic?.modes.map((m, k) => <option key={k} value={k}>{t("seis_mode")} {k + 1} · T = {m.T.toFixed(3)} s</option>)}</select>}
               <label className="chk"><input type="checkbox" checked={s.ids} onChange={(e) => set({ ids: e.target.checked })} />{t("asm_ids")}</label>
             </div>
             {viewEl(true)}
@@ -563,6 +594,7 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
             {connTable && <div className="panel"><h3>{t("asm_joints")}</h3>{connTable}<p className="hint">{t("asm_jointsHint")}</p></div>}
             {plateTable && <div className="panel"><h3>{t("asm_plates")}</h3>{plateTable}<p className="hint">{t("asm_plateRes")}</p></div>}
             {supTable && <div className="panel"><h3>{t("asm_bases")}</h3>{supTable}</div>}
+            {stRes}
             {seisRes}
           </>}
         </div>}
@@ -594,6 +626,7 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
               {connTable && <><h2>{t("asm_joints")}</h2>{connTable}</>}
               {plateTable && <><h2>{t("asm_plates")}</h2>{plateTable}</>}
               {supTable && <><h2>{t("asm_bases")}</h2>{supTable}</>}
+              {stb && <><h2>{t("so_title")}</h2><p>{t(code === "DBN" ? "so_methodDBN" : "so_methodEN")}</p>{stRes}</>}
               {sr && <><h2>{t("seis_title")}</h2><p>{t(code === "DBN" ? "seis_methodDBN" : "seis_methodEN")}</p>{seisRes}</>}
               <h2>{t("rep_checks")}</h2>
               {r.members.map((m) => <div key={m.member}><h3>{t("asm_member")} {m.member} · {m.section}</h3><CheckList checks={m.checks.map((c) => ({ ...c, clause: `${c.clause} · ${t("nl_combo")} ${c.combo}` }))} t={t} /></div>)}

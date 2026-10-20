@@ -12,7 +12,7 @@ import { steel } from "../catalog/materials";
 import type { Section } from "../geometry/sections";
 import { buildCombinations } from "../loads/combinations";
 import type { LoadCategory } from "../loads/combinations";
-import { combineFrame, frameModes, G_MM, solveFrame } from "../analysis/frame3d";
+import { axialForces, combineFrame, frameBuckling, frameModes, frameSecondOrder, imperfectionCases, G_MM, mergeMemberParts, solveFrame, splitMemberLoads } from "../analysis/frame3d";
 import { driftLimit, rhoCQC, rhoDBN, seisSa } from "../loads/seismic";
 import type { SeismicInput } from "../loads/seismic";
 import type { Dof, FrameMember, FrameModel, FrameNode, FrameResult, LoadCase, MemberForces, MemberLoad, Vec3 } from "../analysis/frame3d";
@@ -94,6 +94,8 @@ export interface Assembly {
   gammaC?: number; gammaN?: number;
   /** сейсмічний вплив (спектральний метод) */
   seismic?: SeismicInput;
+  /** розрахунок за деформованою схемою (2-й порядок) з початковим нахилом φ = 1/phiInv */
+  secondOrder?: { on: boolean; phiInv?: number };
 }
 
 export interface MemberCheck { member: string; checks: (Check & { combo: string })[]; util: number; ok: boolean; section: string }
@@ -125,6 +127,19 @@ export interface AsmSeismic {
   warnings: string[];
 }
 
+export interface AsmStability {
+  /** α_cr за сполученнями ULS (статичні); Infinity — без стиску */
+  alpha: { combo: string; alpha: number }[];
+  min: number; minCombo: string;
+  /** перша форма втрати стійкості для найменшого α_cr (переміщення нормовані до 1) */
+  shape?: FrameResult;
+  /** чи виконано розрахунок за деформованою схемою; прийнятий і нормований нахил φ */
+  on: boolean; phi: number; phiDefault: number;
+  /** ітерації за сполученнями, якщо on */
+  iters?: number[];
+  warnings: string[];
+}
+
 export interface AsmResult {
   combos: { name: string; text: string; kind: string; factors: Record<string, number> }[];
   /** результати за сполученнями (ULS і характеристичні SLS) */
@@ -140,6 +155,7 @@ export interface AsmResult {
   maxDisp: { node: string; v: number };
   sections: Record<string, Section>;
   seismic?: AsmSeismic;
+  stability?: AsmStability;
 }
 
 const SUPPORTS: Record<string, Partial<Record<Dof, boolean>>> = {
@@ -244,43 +260,7 @@ export function meshPlates(a: Assembly, model: FrameModel) {
 }
 
 /** Навантаження на стрижень, поділений на частини */
-function splitLoads(ls: MemberLoad[], split: Map<string, { id: string; x0: number; L: number }[]>, Lof: (id: string) => number): MemberLoad[] {
-  const out: MemberLoad[] = [];
-  for (const l of ls) {
-    const parts = split.get(l.member);
-    if (!parts) { out.push(l); continue; }
-    if (l.kind === "point") {
-      const p = parts.find((q) => l.a >= q.x0 - 1e-9 && l.a <= q.x0 + q.L + 1e-9) ?? parts[parts.length - 1];
-      out.push({ ...l, member: p.id, a: l.a - p.x0 });
-      continue;
-    }
-    const a = l.a ?? 0, b = l.b ?? Lof(l.member), w2 = l.w2 ?? l.w1;
-    const w = (x: number) => (b > a ? l.w1 + ((w2 - l.w1) * (x - a)) / (b - a) : l.w1);
-    for (const p of parts) {
-      const lo = Math.max(a, p.x0), hi = Math.min(b, p.x0 + p.L);
-      if (hi <= lo) continue;
-      out.push({ ...l, member: p.id, a: lo - p.x0, b: hi - p.x0, w1: w(lo), w2: w(hi) });
-    }
-  }
-  return out;
-}
-
-/** Зусилля частин стрижня → зусилля всього стрижня */
-function mergeParts(r: FrameResult, split: Map<string, { id: string; x0: number; L: number }[]>) {
-  for (const [mid, parts] of split) {
-    const fs = parts.map((p) => r.members[p.id]);
-    const mf: MemberForces = { x: [], N: [], Vy: [], Vz: [], T: [], My: [], Mz: [], endI: fs[0].endI, endJ: fs[fs.length - 1].endJ, disp: [] };
-    fs.forEach((f, k) => {
-      f.x.forEach((x, q) => {
-        mf.x.push(parts[k].x0 + x);
-        for (const key of ["N", "Vy", "Vz", "T", "My", "Mz"] as const) mf[key].push(f[key][q]);
-        mf.disp.push(f.disp[q]);
-      });
-      delete r.members[parts[k].id];
-    });
-    r.members[mid] = mf;
-  }
-}
+const splitLoads = splitMemberLoads, mergeParts = mergeMemberParts;
 
 const absMax = (v: number[]) => v.reduce((a, b) => Math.max(a, Math.abs(b)), 0);
 
@@ -453,6 +433,8 @@ export function analyzeAssembly(a: Assembly): AsmResult {
   const ulsC = combos.filter((c) => c.kind !== "SLS"), slsC = combos.filter((c) => c.kind === "SLS");
   const ulsStat = ulsC.map((c) => combineFrame(res, c.factors));
   const sls = slsC.map((c) => combineFrame(res, c.factors));
+  // ---- стійкість системи (α_cr) і, за вибором, розрахунок за деформованою схемою
+  const stab = stabilityPart(a, model, lcs, split, ulsC, ulsStat);
   // ---- сейсміка: власні форми → спектральні сили за формами → сполучення форм і напрямків → аварійне сполучення ± E
   const seis = a.seismic?.on ? seismicPart(a, model, lcs, split, res) : undefined;
   const seisC = seis ? seis.combos : [];
@@ -538,12 +520,95 @@ export function analyzeAssembly(a: Assembly): AsmResult {
   });
   let maxDisp = { node: "", v: 0 };
   for (const r of sls.length ? sls : uls) for (const [id, u] of Object.entries(r.u)) { const v = Math.hypot(u[0], u[1], u[2]); if (v > maxDisp.v) maxDisp = { node: id, v }; }
-  const utils = [...members.map((m) => m.util), ...conns.map((c) => c.util), ...supports.map((s) => s.result?.maxUtil ?? 0), ...plates.map((p) => p.util), ...(seis?.out.drift.map((d) => d.util) ?? [])];
+  const stabU = stab && Number.isFinite(stab.min) ? 1 / stab.min : 0;
+  const utils = [...members.map((m) => m.util), ...conns.map((c) => c.util), ...supports.map((s) => s.result?.maxUtil ?? 0), ...plates.map((p) => p.util), ...(seis?.out.drift.map((d) => d.util) ?? []), stabU];
   return {
-    combos, uls, sls, members, conns, supports, plates, panels: [...pan.info, ...plateInfo(a, base, isPlate)], sections, maxDisp, seismic: seis?.out,
+    combos, uls, sls, members, conns, supports, plates, panels: [...pan.info, ...plateInfo(a, base, isPlate)], sections, maxDisp, seismic: seis?.out, stability: stab,
     maxUtil: utils.some((x) => Number.isNaN(x)) ? NaN : Math.max(0, ...utils),
-    ok: (seis?.out.drift.every((d) => d.util <= 1 + 1e-9) ?? true) && members.every((m) => m.ok) && conns.every((c) => c.ok) && plates.every((p) => p.ok) && supports.every((s) => !s.error && (s.result?.ok ?? true)),
+    ok: stabU <= 1 && (seis?.out.drift.every((d) => d.util <= 1 + 1e-9) ?? true) && members.every((m) => m.ok) && conns.every((c) => c.ok) && plates.every((p) => p.ok) && supports.every((s) => !s.error && (s.result?.ok ?? true)),
   };
+}
+
+/** Сума загружень з коефіцієнтами — одне загруження (для нелінійного розрахунку сполучення) */
+function combineCases(lcs: LoadCase[], factors: Record<string, number>, id: string): LoadCase {
+  const out: LoadCase = { id, nodal: [], members: [], shellLoads: [], selfWeight: 0 };
+  for (const lc of lcs) {
+    const k = factors[lc.id];
+    if (!k) continue;
+    for (const n of lc.nodal ?? []) out.nodal!.push({ node: n.node, F: n.F.map((v) => v * k) });
+    for (const m of lc.members ?? []) out.members!.push(m.kind === "point" ? { ...m, P: m.P * k } : { ...m, w1: m.w1 * k, w2: m.w2 === undefined ? undefined : m.w2 * k });
+    for (const sl of lc.shellLoads ?? []) out.shellLoads!.push({ ...sl, q: sl.q * k });
+    out.selfWeight! += (lc.selfWeight ?? 0) * k;
+  }
+  return out;
+}
+
+/** Початковий нахил (EN 1993-1-1, 5.3.2(3)): φ = φ0·α_h·α_m, φ0 = 1/200, α_h = 2/√h (2/3…1), α_m = √(0.5·(1 + 1/m)) */
+export function swayImperfection(a: Assembly): number {
+  const zs = a.nodes.map((n) => n.z), h = (Math.max(...zs) - Math.min(...zs)) / 1000;
+  const ah = Math.min(1, Math.max(2 / 3, 2 / Math.sqrt(Math.max(h, 1e-3))));
+  const sup = new Set(a.nodes.filter((n) => n.support && n.support !== "none").map((n) => n.id));
+  const P = new Map(a.nodes.map((n) => [n.id, n]));
+  const cols = a.members.filter((m) => {
+    const i = P.get(m.i)!, j = P.get(m.j)!, L = Math.hypot(j.x - i.x, j.y - i.y, j.z - i.z);
+    return Math.abs(j.z - i.z) >= 0.9 * L && (sup.has(m.i) || sup.has(m.j));
+  }).length;
+  const am = Math.sqrt(0.5 * (1 + 1 / Math.max(1, cols)));
+  return (ah * am) / 200;
+}
+
+function stabilityPart(a: Assembly, model: FrameModel, lcs: LoadCase[], split: Map<string, { id: string; x0: number; L: number }[]>,
+  ulsC: { name: string; kind: string; factors: Record<string, number> }[], ulsStat: FrameResult[]): AsmStability | undefined {
+  const parent = new Map<string, string>();
+  for (const [mid, parts] of split) for (const p of parts) parent.set(p.id, mid);
+  const Nof = (r: FrameResult) => { const N = axialForces(r), M = new Map<string, number>(); for (const m of model.members) { const v = N.get(parent.get(m.id) ?? m.id); if (v !== undefined) M.set(m.id, v); } return M; };
+  if (!ulsStat.length) return undefined;
+  const Ns = ulsStat.map(Nof);
+  if (!Ns.some((N) => [...N.values()].some((v) => v < -1))) return undefined;
+  const modes = frameBuckling(model, Ns, 1);
+  const alpha = ulsC.map((c, k) => ({ combo: c.name, alpha: modes[k][0]?.alpha ?? Infinity }));
+  let kMin = 0;
+  alpha.forEach((x, k) => { if (x.alpha < alpha[kMin].alpha) kMin = k; });
+  const min = alpha[kMin].alpha;
+  let shape: FrameResult | undefined;
+  const md = modes[kMin][0];
+  if (md) {
+    shape = { u: Object.fromEntries(a.nodes.map((n) => [n.id, md.phi[n.id] ?? [0, 0, 0, 0, 0, 0]])), reactions: {}, members: {} };
+    for (const [id, v] of Object.entries(md.members)) {
+      const z = v.x.map(() => 0);
+      shape.members[id] = { x: v.x, N: z, Vy: z, Vz: z, T: z, My: z, Mz: z, endI: [0, 0, 0, 0, 0, 0], endJ: [0, 0, 0, 0, 0, 0], disp: v.d };
+    }
+    mergeMemberParts(shape, split);
+  }
+  const phiDefault = swayImperfection(a);
+  const on = !!a.secondOrder?.on, phi = a.secondOrder?.phiInv ? 1 / a.secondOrder.phiInv : phiDefault;
+  const warnings: string[] = [];
+  let iters: number[] | undefined;
+  if (on) {
+    iters = ulsC.map(() => 0);
+    const cs = ulsC.map((c, k) => combineCases(lcs, c.factors, `so${k}`));
+    // α_cr ≥ 10 — вплив деформацій малий (EN 1993-1-1, 5.2.1(3)): лише сили від нахилу, лінійно, одним розкладом
+    const lin = ulsC.map((_, k) => k).filter((k) => alpha[k].alpha >= 10);
+    if (lin.length) {
+      const imp = imperfectionCases(model, lin.map((k) => cs[k]), phi, lin.map((k) => ulsStat[k])).cases;
+      const r = solveFrame(model, imp);
+      lin.forEach((k, q) => { const x = r[imp[q].id]; mergeMemberParts(x, split); ulsStat[k] = x; iters![k] = 1; });
+    }
+    for (let k = 0; k < ulsC.length; k++) {
+      if (alpha[k].alpha >= 10) continue;
+      try {
+        const so = frameSecondOrder(model, cs[k], { phi });
+        mergeMemberParts(so.res, split);
+        ulsStat[k] = so.res;
+        iters[k] = so.iters;
+        if (!so.converged) warnings.push(`noconv:${ulsC[k].name}`);
+      } catch (e) {
+        if (String((e as Error).message) !== "instability") throw e;
+        warnings.push(`unstable:${ulsC[k].name}`); iters[k] = -1;
+      }
+    }
+  } else if (min < 10) warnings.push(min < 3 ? "needSecond3" : "needSecond10");
+  return { alpha, min, minCombo: alpha[kMin].combo, shape, on, phi, phiDefault, iters, warnings };
 }
 
 function seismicPart(a: Assembly, model: FrameModel, lcs: LoadCase[], split: Map<string, { id: string; x0: number; L: number }[]>, res: Record<string, FrameResult>) {

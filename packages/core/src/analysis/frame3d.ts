@@ -118,6 +118,34 @@ function kLocal(m: FrameMember, L: number): number[][] {
   return k;
 }
 
+/** Геометрична матриця жорсткості 12×12 (узгоджена, кубічні форми) при поздовжній силі N (розтяг > 0).
+ *  Кручення не враховано: крутильна і згинально-крутильна форми — перевірка стрижня, не системи. */
+function kgLocal(L: number, N: number): number[][] {
+  const k = Array.from({ length: 12 }, () => new Array(12).fill(0));
+  if (!N) return k;
+  const set = (a: number, b: number, v: number) => { k[a][b] += v; if (a !== b) k[b][a] += v; };
+  const c = N / (30 * L);
+  set(1, 1, 36 * c); set(1, 5, 3 * L * c); set(1, 7, -36 * c); set(1, 11, 3 * L * c);
+  set(5, 5, 4 * L * L * c); set(5, 7, -3 * L * c); set(5, 11, -L * L * c);
+  set(7, 7, 36 * c); set(7, 11, -3 * L * c); set(11, 11, 4 * L * L * c);
+  // площина xz, θy = −dw/dx
+  set(2, 2, 36 * c); set(2, 4, -3 * L * c); set(2, 8, -36 * c); set(2, 10, -3 * L * c);
+  set(4, 4, 4 * L * L * c); set(4, 8, 3 * L * c); set(4, 10, -L * L * c);
+  set(8, 8, 36 * c); set(8, 10, 3 * L * c); set(10, 10, 4 * L * L * c);
+  return k;
+}
+
+/** Лінеаризована конденсація геометричної матриці при звільненнях: Aᵀ·G·A, A = [I; −Krr⁻¹·Krc] */
+function condenseG(k: number[][], g: number[][], rel: number[]): number[][] {
+  if (!rel.length) return g;
+  const A: number[][] = Array.from({ length: 12 }, (_, r) => Array.from({ length: 12 }, (_, c) => (r === c && !rel.includes(r) ? 1 : 0)));
+  const cc = [...Array(12).keys()].filter((q) => !rel.includes(q));
+  const X = solveSmall(rel.map((r) => rel.map((q) => k[r][q])), rel.map((r) => cc.map((q) => -k[r][q])));
+  rel.forEach((r, ir) => cc.forEach((c, ic) => (A[r][c] = X[ir][ic])));
+  const GA = g.map((row) => A[0].map((_, c) => row.reduce((s, v, q) => s + v * A[q][c], 0)));
+  return Array.from({ length: 12 }, (_, r) => Array.from({ length: 12 }, (_, c) => (rel.includes(r) || rel.includes(c) ? 0 : A.reduce((s, row, q) => s + row[r] * GA[q][c], 0))));
+}
+
 /** Еквівалентні вузлові сили від навантаження p(s) (локальний вектор, Н/мм) на [a, b] — узгоджені (Ерміт) */
 function eqLoads(L: number, a: number, b: number, p: (s: number) => Vec3): number[] {
   const f = new Array(12).fill(0);
@@ -234,7 +262,8 @@ function memberLoadFns(m: FrameMember, P: Prepared, lc: LoadCase) {
 }
 
 /** Збірка і розклад матриці жорсткості (спільне для статики і власних коливань) */
-function buildFrame(model: FrameModel) {
+/** N — поздовжні сили в стрижнях (розтяг > 0) для розрахунку за деформованою схемою: K + K_σ(N) */
+function buildFrame(model: FrameModel, N?: Map<string, number>) {
   const idx = new Map(model.nodes.map((n, k) => [n.id, k]));
   const nd = model.nodes.length * 6;
   const pos = (id: string): Vec3 => { const n = model.nodes[idx.get(id)!]; return [n.x, n.y, n.z]; };
@@ -247,6 +276,8 @@ function buildFrame(model: FrameModel) {
     if (L < 1e-6) throw new Error(`zero-length:${m.id}`);
     const R = memberAxes(pi, pj, m.beta);
     const kFull = kLocal(m, L), rel = releasedDofs(m);
+    const n = N?.get(m.id);
+    if (n) { const g = kgLocal(L, n); for (let a = 0; a < 12; a++) for (let b = 0; b < 12; b++) kFull[a][b] += g[a][b]; }
     const { k } = condense(kFull, new Array(12).fill(0), rel);
     prep.set(m.id, { L, R, k, rel, kFull });
   }
@@ -388,8 +419,8 @@ function buildFrame(model: FrameModel) {
   return { idx, nd, pos, prep, shells, sprep, dofsOf, dofsOfNodes, free, eq, nf, kdiag, solveVec, solveEq };
 }
 
-export function solveFrame(model: FrameModel, cases: LoadCase[], stations = 41): Record<string, FrameResult> {
-  const { idx, nd, prep, shells, sprep, dofsOf, dofsOfNodes, free, solveVec } = buildFrame(model);
+export function solveFrame(model: FrameModel, cases: LoadCase[], stations = 41, N?: Map<string, number>): Record<string, FrameResult> {
+  const { idx, nd, prep, shells, sprep, dofsOf, dofsOfNodes, free, solveVec } = buildFrame(model, N);
   const out: Record<string, FrameResult> = {};
   for (const lc of cases) {
     const F = new Float64Array(nd);
@@ -473,6 +504,14 @@ export function solveFrame(model: FrameModel, cases: LoadCase[], stations = 41):
         for (const pl of loads.pts) if (pl.a < xx) {
           Fs[0] += pl.P[0]; Fs[1] += pl.P[1]; Fs[2] += pl.P[2];
           Ms[1] += -(pl.a - xx) * pl.P[2]; Ms[2] += (pl.a - xx) * pl.P[1];
+        }
+        // деформована схема: момент сили N на зміщенні осі відносно вузла i (P-Δ і P-δ), форма — кубічна за переміщеннями кінців;
+        // кінцеві сили з K_σ врівноважені саме в деформованому положенні
+        if (N?.get(m.id)) {
+          const e = xx / P.L, h1 = 1 - 3 * e * e + 2 * e ** 3, h2 = P.L * (e - 2 * e * e + e ** 3), h3 = 3 * e * e - 2 * e ** 3, h4 = P.L * (e ** 3 - e * e);
+          const dv = (h1 - 1) * ul[1] + h2 * ul[5] + h3 * ul[7] + h4 * ul[11];
+          const dw = (h1 - 1) * ul[2] - h2 * ul[4] + h3 * ul[8] - h4 * ul[10];
+          Ms[2] += dv * fe[0]; Ms[1] -= dw * fe[0];
         }
         // внутрішні зусилля = −(сума на лівій частині); N > 0 — розтяг
         mf.N.push(-Fs[0]); mf.Vy.push(-Fs[1]); mf.Vz.push(-Fs[2]); mf.T.push(-Ms[0]); mf.My.push(-Ms[1]); mf.Mz.push(-Ms[2]);
@@ -726,4 +765,241 @@ function jacobiEig(A0: number[][]) {
     }
   }
   return { values: A.map((r, i) => r[i]), vectors: Vv };
+}
+
+
+// ---------------------------------------------------------------------------------------------
+// Поділ стрижнів на частини: вузли на стрижнях, навантаження частин, збирання зусиль назад
+
+export type SplitMap = Map<string, { id: string; x0: number; L: number }[]>;
+
+/** Навантаження стрижнів → навантаження їхніх частин */
+export function splitMemberLoads(ls: MemberLoad[], split: SplitMap, Lof: (id: string) => number): MemberLoad[] {
+  const out: MemberLoad[] = [];
+  for (const l of ls) {
+    const parts = split.get(l.member);
+    if (!parts) { out.push(l); continue; }
+    if (l.kind === "point") {
+      const p = parts.find((q) => l.a >= q.x0 - 1e-9 && l.a <= q.x0 + q.L + 1e-9) ?? parts[parts.length - 1];
+      out.push({ ...l, member: p.id, a: l.a - p.x0 });
+      continue;
+    }
+    const a = l.a ?? 0, b = l.b ?? Lof(l.member), w2 = l.w2 ?? l.w1;
+    const w = (x: number) => (b > a ? l.w1 + ((w2 - l.w1) * (x - a)) / (b - a) : l.w1);
+    for (const p of parts) {
+      const lo = Math.max(a, p.x0), hi = Math.min(b, p.x0 + p.L);
+      if (hi <= lo) continue;
+      out.push({ ...l, member: p.id, a: lo - p.x0, b: hi - p.x0, w1: w(lo), w2: w(hi) });
+    }
+  }
+  return out;
+}
+
+/** Зусилля частин стрижня → зусилля всього стрижня */
+export function mergeMemberParts(r: FrameResult, split: SplitMap) {
+  for (const [mid, parts] of split) {
+    const fs = parts.map((p) => r.members[p.id]);
+    if (fs.some((f) => !f)) continue;
+    const mf: MemberForces = { x: [], N: [], Vy: [], Vz: [], T: [], My: [], Mz: [], endI: fs[0].endI, endJ: fs[fs.length - 1].endJ, disp: [] };
+    fs.forEach((f, k) => {
+      f.x.forEach((x, q) => {
+        mf.x.push(parts[k].x0 + x);
+        for (const key of ["N", "Vy", "Vz", "T", "My", "Mz"] as const) mf[key].push(f[key][q]);
+        mf.disp.push(f.disp[q]);
+      });
+      delete r.members[parts[k].id];
+    });
+    r.members[mid] = mf;
+  }
+}
+
+/** Поділ стрижнів довших за h на рівні частини (до maxSeg) — для P-δ і форм втрати стійкості всередині стрижня */
+export function refineFrame(model: FrameModel, cases: LoadCase[], h = 1000, maxSeg = 4) {
+  const pos = new Map(model.nodes.map((n) => [n.id, [n.x, n.y, n.z] as Vec3]));
+  const nodes: FrameNode[] = [...model.nodes], members: FrameMember[] = [], split: SplitMap = new Map(), extra = new Set<string>();
+  const len = new Map<string, number>();
+  for (const m of model.members) {
+    const pi = pos.get(m.i)!, pj = pos.get(m.j)!, L = Math.hypot(...sub(pj, pi));
+    len.set(m.id, L);
+    const n = Math.min(maxSeg, Math.ceil(L / h - 0.01));
+    if (n <= 1) { members.push(m); continue; }
+    const ids = [m.i];
+    for (let k = 1; k < n; k++) {
+      const id = `${m.id}~${k}`, t = k / n;
+      nodes.push({ id, x: pi[0] + (pj[0] - pi[0]) * t, y: pi[1] + (pj[1] - pi[1]) * t, z: pi[2] + (pj[2] - pi[2]) * t });
+      extra.add(id); ids.push(id);
+    }
+    ids.push(m.j);
+    const parts: { id: string; x0: number; L: number }[] = [];
+    for (let k = 0; k < n; k++) {
+      const id = `${m.id}~p${k}`;
+      members.push({ ...m, id, i: ids[k], j: ids[k + 1], rel: { i: k === 0 ? m.rel?.i : undefined, j: k === n - 1 ? m.rel?.j : undefined } });
+      parts.push({ id, x0: (L * k) / n, L: L / n });
+    }
+    split.set(m.id, parts);
+  }
+  const Lof = (id: string) => len.get(id) ?? 0;
+  const cs = cases.map((c) => ({ ...c, members: c.members ? splitMemberLoads(c.members, split, Lof) : undefined }));
+  const merge = (r: FrameResult) => { mergeMemberParts(r, split); for (const id of extra) { delete r.u[id]; delete r.reactions[id]; } return r; };
+  return { model: { ...model, nodes, members }, cases: cs, split, extra, merge };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Розрахунок за деформованою схемою (P-Δ, P-δ) і пружна стійкість (коефіцієнт α_cr)
+
+/** Поздовжня сила стрижня (розтяг > 0) — середнє по довжині */
+const axialOf = (mf: MemberForces) => (mf.N[0] + mf.N[mf.N.length - 1]) / 2;
+export const axialForces = (r: FrameResult) => new Map(Object.entries(r.members).map(([id, mf]) => [id, axialOf(mf)]));
+
+export interface SecondOrderResult {
+  res: FrameResult; iters: number; converged: boolean;
+  /** початкове відхилення від вертикалі φ і напрям (одиничний у плані) еквівалентних горизонтальних сил */
+  phi: number; dir: [number, number];
+}
+
+/** Деформована схема: K(N)·u = F з ітераціями за N, з еквівалентними горизонтальними силами φ·V від початкового нахилу */
+/** Еквівалентні горизонтальні сили від початкового нахилу: H = φ·V у вузлах з вертикальним навантаженням,
+ *  у напрямку горизонтального зміщення від цього ж навантаження (first) */
+export function imperfectionCases(model: FrameModel, lcs: LoadCase[], phi: number, firsts: FrameResult[], B0?: ReturnType<typeof buildFrame>): { cases: LoadCase[]; dirs: [number, number][] } {
+  const B = B0 ?? buildFrame(model);
+  const dirs: [number, number][] = [];
+  const cases = lcs.map((lc, q) => {
+    const F = loadVector(model, B, lc), first = firsts[q];
+    let dx = 0, dy = 0;
+    model.nodes.forEach((n, k) => { const w = Math.max(0, -F[k * 6 + 2]); const u = first?.u[n.id]; if (u) { dx += w * u[0]; dy += w * u[1]; } });
+    const l = Math.hypot(dx, dy), dir: [number, number] = l > 1e-9 ? [dx / l, dy / l] : [1, 0];
+    dirs.push(dir);
+    const nodal = [...(lc.nodal ?? [])];
+    if (phi) model.nodes.forEach((n, k) => {
+      const V = -F[k * 6 + 2];
+      if (V > 0 && !(n.fix?.ux && n.fix?.uy)) nodal.push({ node: n.id, F: [phi * V * dir[0], phi * V * dir[1], 0, 0, 0, 0] });
+    });
+    return { ...lc, nodal };
+  });
+  return { cases, dirs };
+}
+
+/** Деформована схема: K(N)·u = F з ітераціями за N, з еквівалентними горизонтальними силами φ·V від початкового нахилу */
+export function frameSecondOrder(model0: FrameModel, lc0: LoadCase, opt: { phi?: number; tol?: number; refine?: boolean } = {}): SecondOrderResult {
+  const R = opt.refine === false ? null : refineFrame(model0, [lc0]);
+  const model = R?.model ?? model0, lc = R?.cases[0] ?? lc0;
+  const B = buildFrame(model);
+  const first = solveFrame(model, [lc])[lc.id];
+  const phi = opt.phi ?? 0;
+  const { cases: [lc2], dirs: [dir] } = imperfectionCases(model, [lc], phi, [first], B);
+  let N = axialForces(first), res = first, iters = 0, converged = false;
+  const tol = opt.tol ?? 2e-3;
+  for (; iters < 15; ) {
+    iters++;
+    try { res = solveFrame(model, [lc2], 41, N)[lc2.id]; }
+    catch (e) { if (String((e as Error).message).startsWith("mechanism")) throw new Error("instability"); throw e; }
+    const Nn = axialForces(res);
+    let d = 0, mx = 1;
+    for (const [id, v] of Nn) { d = Math.max(d, Math.abs(v - (N.get(id) ?? 0))); mx = Math.max(mx, Math.abs(v)); }
+    N = Nn;
+    if (d <= tol * mx) { converged = true; break; }
+  }
+  return { res: R ? R.merge(res) : res, iters, converged, phi, dir };
+}
+
+export interface BucklingMode {
+  /** коефіцієнт критичного навантаження: N_cr = α_cr · N */
+  alpha: number;
+  /** форма (переміщення вузлів), нормована до max |u| = 1 */
+  phi: Record<string, number[]>;
+  /** форма вздовж стрижнів: точки x (мм від вузла i) і переміщення */
+  members: Record<string, { x: number[]; d: Vec3[] }>;
+}
+
+/** Пружна стійкість: (K + α·K_σ(N))·φ = 0 — найменші додатні α для кожного набору сил; ітерації в підпросторі.
+ *  Оболонки (пластини) дають жорсткість, але не втрачають стійкість самі. */
+export function frameBuckling(model0: FrameModel, Ns0: Map<string, number>[], nModes = 1): BucklingMode[][] {
+  const Rf = refineFrame(model0, []), model = Rf.model;
+  // частини стрижня — з тією ж силою, що й стрижень
+  const Ns = Ns0.map((N) => { const M = new Map(N); for (const [mid, parts] of Rf.split) { const v = N.get(mid); if (v !== undefined) for (const p of parts) M.set(p.id, v); } return M; });
+  const B = buildFrame(model);
+  const { nf, free, nd, eq } = B;
+  const mats = model.members.map((m) => {
+    const P = B.prep.get(m.id)!, k1 = condenseG(P.kFull, kgLocal(P.L, 1), P.rel), R = P.R;
+    // Tᵀ·kg·T — з одиничною силою, масштабується N
+    const T = Array.from({ length: 12 }, () => new Array(12).fill(0));
+    for (let b = 0; b < 4; b++) for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) T[b * 3 + r][b * 3 + c] = R[r][c];
+    const kT = k1.map((row) => T[0].map((_, c) => row.reduce((s, v, q) => s + v * T[q][c], 0)));
+    const G = Array.from({ length: 12 }, (_, r) => Array.from({ length: 12 }, (_, c) => { let s = 0; for (let q = 0; q < 12; q++) s += T[q][r] * kT[q][c]; return s; }));
+    return { id: m.id, d: B.dofsOf(m).map((g) => eq[g]), G };
+  });
+  let warm: Float64Array[] = [];
+  return Ns.map((N) => {
+    const act = mats.filter((x) => N.get(x.id));
+    if (!act.some((x) => (N.get(x.id) ?? 0) < 0)) return [];
+    // B·x = −K_σ(N)·x у нумерації рівнянь
+    const Bmul = (x: Float64Array) => {
+      const y = new Float64Array(nf);
+      for (const e of act) {
+        const n = -(N.get(e.id) ?? 0);
+        for (let a = 0; a < 12; a++) { const ra = e.d[a]; if (ra < 0) continue; let s = 0; for (let b = 0; b < 12; b++) { const rb = e.d[b]; if (rb >= 0) s += e.G[a][b] * x[rb]; } y[ra] += n * s; }
+      }
+      return y;
+    };
+    const q = Math.min(nModes, nf), p = Math.min(nf, Math.max(2 * q, q + 6));
+    let seed = 777;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648) - 0.5;
+    // початкові вектори: горизонтальні зміщення X і Y, далі випадкові
+    // попереднє сполучення — гарне наближення (схожий розподіл сил), інакше горизонтальні зміщення X, Y і випадкові
+    let X: Float64Array[] = warm.length ? warm.map((x) => Float64Array.from(x)) : [];
+    if (!X.length) for (let d0 = 0; d0 < 2; d0++) { const v = new Float64Array(nf); free.forEach((g, r) => { if (g % 6 === d0) v[r] = 1; }); X.push(v); }
+    while (X.length < p) { const v = new Float64Array(nf); for (let r = 0; r < nf; r++) v[r] = rnd(); X.push(v); }
+    let mu: number[] = [];
+    for (let it = 0; it < 60; it++) {
+      let Y = X.map(Bmul);
+      let Xb = Y.map((y) => B.solveEq(y));
+      // K-ортонормування: K·Xb = Y
+      const kx: Float64Array[] = [], ky: Float64Array[] = [];
+      for (let j = 0; j < Xb.length; j++) {
+        const x = Xb[j], y = Y[j];
+        for (let pass = 0; pass < 2; pass++) for (let k = 0; k < kx.length; k++) {
+          let s = 0; for (let r = 0; r < nf; r++) s += kx[k][r] * y[r];
+          for (let r = 0; r < nf; r++) { x[r] -= s * kx[k][r]; y[r] -= s * ky[k][r]; }
+        }
+        let nr = 0; for (let r = 0; r < nf; r++) nr += x[r] * y[r];
+        if (!(nr > 1e-30)) continue;
+        nr = Math.sqrt(nr);
+        for (let r = 0; r < nf; r++) { x[r] /= nr; y[r] /= nr; }
+        kx.push(x); ky.push(y);
+      }
+      Xb = kx; Y = ky;
+      const BX = Xb.map(Bmul), n = Xb.length;
+      const Br = Array.from({ length: n }, (_, a) => Array.from({ length: n }, (_, b) => { let s = 0; for (let r = 0; r < nf; r++) s += Xb[a][r] * BX[b][r]; return s; }));
+      for (let a = 0; a < n; a++) for (let b = 0; b < a; b++) { const v = (Br[a][b] + Br[b][a]) / 2; Br[a][b] = Br[b][a] = v; }
+      const { values, vectors } = jacobiEig(Br);
+      const ord = values.map((_, k) => k).sort((a, b) => values[b] - values[a]);
+      const muNew = ord.map((k) => values[k]);
+      X = ord.map((k) => { const x = new Float64Array(nf); for (let j = 0; j < n; j++) { const c = vectors[j][k]; if (c) for (let r = 0; r < nf; r++) x[r] += c * Xb[j][r]; } return x; });
+      while (X.length < p) { const v = new Float64Array(nf); for (let r = 0; r < nf; r++) v[r] = rnd(); X.push(v); }
+      const conv = mu.length >= q && muNew.slice(0, q).every((l, k) => Math.abs(l - mu[k]) <= 1e-5 * Math.abs(l) + 1e-14);
+      mu = muNew;
+      if (conv) break;
+    }
+    warm = X.slice(0, p);
+    const out: BucklingMode[] = [];
+    for (let k = 0; k < q && k < mu.length; k++) {
+      if (!(mu[k] > 1e-12)) break;
+      const full = new Float64Array(nd);
+      free.forEach((g, r) => (full[g] = X[k][r]));
+      let mx = 0, sg = 1;
+      for (let g = 0; g < nd; g++) if (g % 6 < 3 && Math.abs(full[g]) > mx) { mx = Math.abs(full[g]); sg = full[g] < 0 ? -1 : 1; }
+      const phi: Record<string, number[]> = {};
+      model.nodes.forEach((nn, j) => (phi[nn.id] = Array.from(full.slice(j * 6, j * 6 + 6), (v) => (v * sg) / (mx || 1))));
+      // форма вздовж стрижнів — за вузлами частин
+      const members: Record<string, { x: number[]; d: Vec3[] }> = {};
+      for (const m of model0.members) {
+        const parts = Rf.split.get(m.id), ids = parts ? [m.i, ...parts.slice(1).map((_, q) => `${m.id}~${q + 1}`), m.j] : [m.i, m.j];
+        const L = parts ? parts.reduce((a, p) => a + p.L, 0) : B.prep.get(m.id)!.L;
+        members[m.id] = { x: ids.map((_, q) => (L * q) / (ids.length - 1)), d: ids.map((id) => phi[id].slice(0, 3) as Vec3) };
+      }
+      for (const id of Rf.extra) delete phi[id];
+      out.push({ alpha: 1 / mu[k], phi, members });
+    }
+    return out;
+  });
 }
