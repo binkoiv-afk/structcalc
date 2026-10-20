@@ -161,4 +161,34 @@ describe("вільний вузол", () => {
     expect(Math.abs(b.bolt!.Vu)).toBeLessThan(300);
     expect(Math.abs(b.Vu)).toBeCloseTo(3e3, -1);
   });
+
+  // натяг: M16 8.8, P0 = 0.7·800·157 = 87.9 кН
+  const pre = (t: number, Fz: number, Fx = 0, mu = 0) => { const i = tstub(t, Fz, Fx, mu); i.conns[0] = { ...i.conns[0], preload: true }; return i; };
+  it("натяг без навантаження: T = P0, контакт стискається силою 2·P0", () => {
+    const f = checkFree(pre(20, 0)).combos[0].forces[0];
+    expect(f.pre!.P0).toBeCloseTo(0.7 * 800 * 157, 0);
+    expect(f.pre!.T / f.pre!.P0).toBeCloseTo(1, 2);
+    expect(f.pre!.Fc / (2 * f.pre!.P0)).toBeCloseTo(1, 2);
+    expect(f.pre!.open).toBe(false);
+  });
+  it("натяг: зовнішній відрив до розкриття майже не збільшує зусилля в болті, після — болт несе все", () => {
+    const a = checkFree(pre(20, 40e3)).combos[0];
+    const fa = a.forces[0];
+    // відрив 40 кН забирає притискання з контакту, болт лишається з P0
+    expect(Math.abs(fa.pre!.T - fa.pre!.P0)).toBeLessThan(0.05 * 40e3);
+    expect(fa.pre!.Fc).toBeCloseTo(2 * fa.pre!.P0 - 40e3, -3);
+    const da = a.checks.find((x) => x.key === "jDecomp")!;
+    expect(da.util).toBeLessThan(1);
+    const b = checkFree(pre(20, 250e3)).combos[0], fb = b.forces[0];
+    expect(fb.pre!.open).toBe(true);
+    expect(fb.pre!.T).toBeGreaterThan(125e3 - 1e3);
+    expect(b.checks.find((x) => x.key === "jDecomp")!.util).toBeGreaterThan(1);
+  });
+  it("натяг з тертям: зсув іде тертям від P0 навіть без зовнішнього притискання", () => {
+    const f = checkFree(pre(12, 0, 20e3, 0.3)).combos[0].forces[0];
+    // μ·2·P0 = 52.7 кН > 20 кН — без ковзання; болтам лишається частка за жорсткістю
+    expect(f.pre!.Vb).toBeLessThan(0.15 * 20e3);
+    // перевірки — за станом без натягу (у запас): майже весь зсув на болтах
+    expect(Math.abs(f.bolt!.Vu)).toBeGreaterThan(0.9 * 20e3);
+  });
 });

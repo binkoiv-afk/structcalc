@@ -5,7 +5,7 @@ import { NumInput } from "./NumInput";
 import { useDeferredValue, useMemo, useState } from "react";
 import type { FPlateMap } from "@structcalc/core";
 import {
-  BOLT_CLASSES, BOLT_DIAMETERS, checkFree, CodeId, familiesFor, familySections, findSection, FConn, FPart, FreeResult, jointSpec, JExtra, Section, STEELS,
+  BOLT_CLASSES, BOLT_DIAMETERS, boltPreload, checkFree, CodeId, familiesFor, familySections, findSection, FConn, FPart, FreeResult, jointSpec, JExtra, Section, STEELS,
 } from "@structcalc/core";
 import { CheckList, pct, T, utilState } from "./Results";
 import { FamilyOptions } from "./SectionModule";
@@ -18,6 +18,8 @@ export interface FConnUI {
   /** шви: заготовка (два паралельні, контур, один, свої відрізки), довжина L уздовж v, розмах s уздовж u */
   shape: "two" | "rect" | "one" | "custom"; L: number; s: number; kf: number; segs: { u1: number; v1: number; u2: number; v2: number }[];
   rows: number; cols: number; pu: number; pv: number; d: number; cls: string; planes: number; friction: boolean;
+  /** попередній натяг (фрикційні — завжди натягнуті); P0 у кН, 0 або порожньо — за нормою */
+  preload?: boolean; P0?: number;
 }
 export interface FCombo { name: string; Fx?: number; Fy?: number; Fz?: number; Mx?: number; My?: number; Mz?: number }
 export interface FreeState { parts: FPartUI[]; conns: FConnUI[]; ax: number; ay: number; az: number; combos: FCombo[]; sel: string; gammaC: number; gammaN: number; mu?: number; obj?: string; elem?: string }
@@ -101,7 +103,7 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
   };
   const mk = (st: FreeState) => ({ parts: st.parts.map((p): FPart => ({ id: p.id, kind: p.kind, axis: p.axis, a: p.a, b: p.b, t: p.t, c: [p.cx, p.cy, p.cz], rot: p.rot, sec: p.kind === "profile" ? secOf(p.fam, p.size) : undefined, steel: okSteel(p.steel), role: p.role })),
   conns: st.conns.map((c): FConn => ({ id: c.id, a: c.a, b: c.b, kind: c.kind, n: c.n, o: [c.ox, c.oy, c.oz], segs: segsOf(c), kf: c.kf,
-    rows: c.rows, cols: c.cols, pu: c.pu, pv: c.pv, d: c.d, cls: c.cls, planes: c.planes, friction: c.friction })) });
+    rows: c.rows, cols: c.cols, pu: c.pu, pv: c.pv, d: c.d, cls: c.cls, planes: c.planes, friction: c.friction, preload: c.preload, P0: c.P0 })) });
   const { parts } = mk(s);
   // розрахунок з контактом нелінійний — рахуємо за відкладеним станом, щоб введення не гальмувало
   const ds = useDeferredValue(s);
@@ -203,6 +205,11 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
         <Num id={`${c.id}-pu`} label={`${t("fj_pitch")} ${u}, mm`} v={c.pu} step={5} on={(n) => upConn(k, { pu: n })} />
         <Num id={`${c.id}-planes`} label={t("bo_planes")} v={c.planes} on={(n) => upConn(k, { planes: Math.max(1, Math.round(n)) })} />
         <label className="chk"><input id={`${c.id}-fr`} type="checkbox" checked={c.friction} onChange={(e) => upConn(k, { friction: e.target.checked })} />{t("jp_friction")}</label>
+        <label className="chk"><input id={`${c.id}-pre`} type="checkbox" checked={c.friction || !!c.preload} disabled={c.friction} onChange={(e) => upConn(k, { preload: e.target.checked })} />{t("fj_preload")}</label>
+        {(c.friction || c.preload) && <>
+          <Num id={`${c.id}-P0`} label={t("fj_P0")} v={c.P0 ?? 0} step={5} on={(n) => upConn(k, { P0: Math.max(0, n) })} />
+          <p className="hint">{t("fj_P0auto")} = {(boltPreload(code, { id: "", a: "", b: "", kind: "bolts", n: "z", o: [0, 0, 0], d: c.d, cls: c.cls, friction: c.friction }) / 1e3).toFixed(1)} kN</p>
+        </>}
       </>}
       <p className="hint wide">{t("fj_connHint")}</p>
       <button className="ghost danger wide" id={`${c.id}-del`} onClick={() => set({ conns: s.conns.filter((_, j) => j !== k), sel: "" })}>{t("np_remove")}</button>
@@ -258,13 +265,15 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
     </div>
   );
   const hasC = !!r?.combos.some((cb) => cb.forces.some((x) => x.Fc !== undefined));
+  const hasP = !!r?.combos.some((cb) => cb.forces.some((x) => x.pre));
   const forcesTable = r && (
-    <table className="conn-values combo-res"><thead><tr><th>{t("fj_conn")}</th><th>{t("nl_combo")}</th><th>N</th><th>V_u</th><th>V_v</th><th>M_n</th><th>M_u</th><th>M_v</th>{hasC && <><th>{t("fj_Fc")}</th><th>{t("fj_Tmax")}</th></>}</tr></thead>
+    <table className="conn-values combo-res"><thead><tr><th>{t("fj_conn")}</th><th>{t("nl_combo")}</th><th>N</th><th>V_u</th><th>V_v</th><th>M_n</th><th>M_u</th><th>M_v</th>{hasC && <><th>{t("fj_Fc")}</th><th>{t("fj_Tmax")}</th></>}{hasP && <><th>{t("fj_preT")}</th><th>{t("fj_preFc")}</th><th>{t("fj_preState")}</th></>}</tr></thead>
       <tbody>{s.conns.flatMap((c) => r.combos.map((cb) => {
         const fr = cb.forces.find((x) => x.conn === c.id);
         if (!fr) return null;
         return <tr key={`${c.id}${cb.name}`}><td>{c.name || c.id}</td><td>{cb.name}</td>{[fr.N, fr.Vu, fr.Vv].map((v, j) => <td key={j} className="mono">{(v / 1e3).toFixed(2)}</td>)}{[fr.Mn, fr.Mu, fr.Mv].map((v, j) => <td key={`m${j}`} className="mono">{(v / 1e6).toFixed(2)}</td>)}
-          {hasC && <><td className="mono">{fr.Fc !== undefined ? (fr.Fc / 1e3).toFixed(2) : "—"}</td><td className="mono">{fr.Tmax !== undefined ? (fr.Tmax / 1e3).toFixed(2) : "—"}</td></>}</tr>;
+          {hasC && <><td className="mono">{fr.Fc !== undefined ? (fr.Fc / 1e3).toFixed(2) : "—"}</td><td className="mono">{fr.Tmax !== undefined ? (fr.Tmax / 1e3).toFixed(2) : "—"}</td></>}
+          {hasP && (fr.pre ? <><td className="mono">{(fr.pre.T / 1e3).toFixed(2)} / {(fr.pre.P0 / 1e3).toFixed(1)}</td><td className="mono">{(fr.pre.Fc / 1e3).toFixed(2)}</td><td className={fr.pre.open ? "bad" : ""}>{t(fr.pre.open ? "fj_open" : "fj_closed")}</td></> : <><td>—</td><td>—</td><td>—</td></>)}</tr>;
       }))}</tbody></table>
   );
   // поради по зв'язках, що не проходять

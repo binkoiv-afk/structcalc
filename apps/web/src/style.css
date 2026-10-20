@@ -588,3 +588,4 @@ input.num-expr { border-color: var(--accent) !important; box-shadow: 0 0 0 2px v
 .av-brace { stroke: var(--ok); stroke-width: 1.8; fill: none; pointer-events: none; }
 .brace-ed { border-top: 1px dashed var(--line); margin-top: 10px; padding-top: 8px; }
 .brace-ed .hint { margin: 4px 0 0; }
+.combo-res td.bad { color: var(--fail); font-weight: 600; }
