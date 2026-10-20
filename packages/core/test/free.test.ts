@@ -83,13 +83,14 @@ describe("вільний вузол", () => {
     expect(Number(sub(r, "jFreeSec").subst.match(/σ = ([\d.]+)/)![1])).toBeCloseTo(36, 0);
   });
 
-  it("згин пластини між двома групами болтів ≈ балка на двох опорах", () => {
-    // пластина 400×100×10 на двох парах болтів у прольоті 360, сила 2 кН посередині: σ ≈ 6·F·L/4/(b·t²) = 108 МПа у середині
+  it("згин пластини між двома групами болтів — між балкою із защемленням і шарнірною", () => {
+    // пластина 400×100×10 на двох парах болтів у прольоті 360, сила 2 кН посередині: шарнір 108 МПа, защемлення 54 МПа
     const r = checkFree({
       code: "EN",
       parts: [
-        { id: "S1", kind: "plate", axis: "z", a: 60, b: 100, t: 10, c: [-180, 0, -10], steel: "S235", role: "support" },
-        { id: "S2", kind: "plate", axis: "z", a: 60, b: 100, t: 10, c: [180, 0, -10], steel: "S235", role: "support" },
+        // опори — профілі (без контакту): чисто шарнірні опори для порівняння з балкою
+        { id: "S1", kind: "profile", axis: "y", a: 100, b: 0, t: 0, c: [-180, 0, -30], sec: findSection("RHS_COLD", "60×60×4")!, steel: "S235", role: "support" },
+        { id: "S2", kind: "profile", axis: "y", a: 100, b: 0, t: 0, c: [180, 0, -30], sec: findSection("RHS_COLD", "60×60×4")!, steel: "S235", role: "support" },
         { id: "L", kind: "plate", axis: "z", a: 400, b: 100, t: 10, c: [0, 0, 0], steel: "S235", role: "load" },
       ],
       conns: [
@@ -99,8 +100,9 @@ describe("вільний вузол", () => {
       at: [0, 0, 5],
       combos: [{ name: "1", Fz: -2000 }],
     });
+    // головки болтів затискають пластину — опори частково защемлені: між FL/8 (защемлення) і FL/4 (шарнір)
     const fe = sub(r, "jFreePlate").util * 235;
-    expect(fe).toBeGreaterThan(85);
+    expect(fe).toBeGreaterThan(0.7 * 54);
     expect(fe).toBeLessThan(115);
     // кожна група — половина сили
     for (const f of r.combos[0].forces) expect(Math.abs(f.N)).toBeCloseTo(1000, 0);
@@ -119,5 +121,44 @@ describe("вільний вузол", () => {
     const r = checkFree(i);
     expect(Number(sub(r, "jFreeSec").subst.match(/σ = ([\d.]+)/)![1])).toBeCloseTo((2000 * 300) / sec.Wy, 0);
     expect(r.plates.length).toBe(0);
+  });
+
+  // Т-заглушка: фланець на двох болтах до опорної плити, відрив силою посередині
+  const tstub = (t: number, Fz: number, Fx = 0, mu = 0): FreeInput => ({
+    code: "EN", mu,
+    parts: [
+      { id: "S", kind: "plate", axis: "z", a: 300, b: 200, t: 20, c: [0, 0, -10], steel: "S235", role: "support" },
+      { id: "L", kind: "plate", axis: "z", a: 200, b: 100, t, c: [0, 0, t / 2], steel: "S235", role: "load" },
+    ],
+    conns: [{ id: "B", a: "S", b: "L", kind: "bolts", n: "z", o: [0, 0, 0], rows: 1, cols: 2, pu: 120, d: 16, cls: "8.8" }],
+    at: [0, 0, t],
+    combos: [{ name: "1", Fz, Fx }],
+  });
+
+  it("контакт: підважування збільшує розтяг болтів, тим більше, чим тонший фланець", () => {
+    const T = [8, 12, 20].map((t) => checkFree(tstub(t, 20e3)).combos[0].forces[0]);
+    for (const f of T) {
+      expect(f.N).toBeCloseTo(20e3, -1);
+      // рівновага: 2·T ≈ F + сила контакту (болти не рівно, тому ≥)
+      expect(f.Tmax!).toBeGreaterThan(10e3);
+      expect(2 * f.Tmax!).toBeGreaterThanOrEqual(20e3 + f.Fc! - 1);
+    }
+    expect(T[0].Tmax!).toBeGreaterThan(T[1].Tmax!);
+    expect(T[1].Tmax!).toBeGreaterThan(T[2].Tmax!);
+    expect(T[0].Fc!).toBeGreaterThan(T[2].Fc!);
+  });
+
+  it("контакт: притискання — стиск іде в контакт, болти не стискаються", () => {
+    const f = checkFree(tstub(12, -20e3)).combos[0].forces[0];
+    expect(Math.abs(f.Fc! - 20e3)).toBeLessThan(1e3);
+    expect(f.Tmax!).toBeLessThan(500);
+  });
+
+  it("тертя в контакті зменшує зріз болтів, без тертя зріз — весь на болтах", () => {
+    const a = checkFree(tstub(12, -20e3, 3e3)).combos[0].forces[0], b = checkFree(tstub(12, -20e3, 3e3, 0.3)).combos[0].forces[0];
+    expect(Math.abs(a.bolt!.Vu)).toBeCloseTo(3e3, -1);
+    // μ·F_c = 6 кН > 3 кН — зсув повністю на терті
+    expect(Math.abs(b.bolt!.Vu)).toBeLessThan(300);
+    expect(Math.abs(b.Vu)).toBeCloseTo(3e3, -1);
   });
 });

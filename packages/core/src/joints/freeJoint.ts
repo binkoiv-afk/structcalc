@@ -36,8 +36,14 @@ export interface FreeInput {
   at: V3;
   combos: FCombo[];
   gammaC?: number; gammaN?: number;
+  /** тертя в контакті пластин (0 — зсув сприймають лише болти) */
+  mu?: number;
 }
-export interface FConnForce { conn: string; N: number; Vu: number; Vv: number; Mn: number; Mu: number; Mv: number }
+export interface FConnForce {
+  conn: string; N: number; Vu: number; Vv: number; Mn: number; Mu: number; Mv: number;
+  /** з контактом пластин: сумарний тиск контакту, найбільший розтяг болта (з підважуванням), зріз і кручення лише болтів */
+  Fc?: number; Tmax?: number; bolt?: { Vu: number; Vv: number; Mn: number };
+}
 /** сітка пластини і огинаюча σ_ef / межа по елементах (рядки вздовж V, у рядку — вздовж U) */
 export interface FPlateMap {
   part: string; U: JAxis; V: JAxis; u0: number; v0: number; hu: number; hv: number; nu: number; nv: number; util: number[];
@@ -159,26 +165,57 @@ export function checkFree(i: FreeInput): FreeResult {
     return T;
   };
   const avgT = (l: T3[]): T3 => { const T = t3(); for (const x of l) for (let a = 0; a < 3; a++) for (const [vd, c] of x[a]) addT(T, a, vd, c / l.length); return T; };
-  // пружини зв'язків: шви — точки через 10 мм; болт — між середніми переміщеннями кілець під головкою/шайбою (r = 0.8·d)
-  type Spring = { p: V3; k3: number[][]; T: T3 };
+  // пружини зв'язків: шви — точки через 10 мм; болт — між середніми переміщеннями кілець під головкою/шайбою (r = 0.8·d),
+  // окремо зріз (завжди) і розтяг (лише розтяг, якщо є контакт); контакт пластин — лише стиск, тертя μ — зчеплення / ковзання
+  type Kind = "fix" | "bolt" | "cont" | "fric";
+  type Spring = { p: V3; k3: number[][]; T: T3; kind: Kind; s?: number; n?: V3; k?: number; grp?: number };
   const springs = new Map<string, Spring[]>();
+  const mu = Math.max(0, i.mu ?? 0);
+  const nn = (n: V3, k: number) => [0, 1, 2].map((a) => [0, 1, 2].map((b) => k * n[a] * n[b]));
+  const tt = (n: V3, k: number) => [0, 1, 2].map((a) => [0, 1, 2].map((b) => k * ((a === b ? 1 : 0) - n[a] * n[b])));
+  const diffT = (TA: T3, TB: T3) => { const T = t3(); for (let a = 0; a < 3; a++) { for (const [vd, x] of TB[a]) addT(T, a, vd, x); for (const [vd, x] of TA[a]) addT(T, a, vd, -x); } return T; };
+  let boltId = 0;
   for (const c of conns) {
     const pa = P.get(c.a)!, pb = P.get(c.b)!, n = unit(c.n), [ua, va] = UV[c.n], eu = unit(ua), ev = unit(va);
+    // B по який бік площини зв'язку: s = +1 — уздовж n
+    const sB = Math.sign(pb.c[IDX[c.n]] - c.o[IDX[c.n]]) || -Math.sign(pa.c[IDX[c.n]] - c.o[IDX[c.n]]) || 1;
     const list: Spring[] = [];
+    // контакт: болтові зв'язки двох пластин, що лежать у площині зв'язку, — сітка точок на перекритті
+    const cont = c.kind === "bolts" && isPlate(pa) && isPlate(pb) && pa.axis === c.n && pb.axis === c.n;
     for (const q of connPoints(c)) {
       const g = toG(c.n, c.o, q.u, q.v), kn = (E * q.A) / LREF, ks = (G * q.A) / LREF;
-      const k3 = [0, 1, 2].map((a) => [0, 1, 2].map((b) => ks * (a === b ? 1 : 0) + (kn - ks) * n[a] * n[b]));
-      const side = (p: FPart) => {
-        if (c.kind === "weld") return attach(p, g, c.id);
-        const r = 0.8 * (c.d ?? 16);
-        return avgT([0, 1, 2, 3, 4, 5, 6, 7].map((k) => {
-          const f = (k * Math.PI) / 4, h: V3 = [g[0] + r * (Math.cos(f) * eu[0] + Math.sin(f) * ev[0]), g[1] + r * (Math.cos(f) * eu[1] + Math.sin(f) * ev[1]), g[2] + r * (Math.cos(f) * eu[2] + Math.sin(f) * ev[2])];
-          return attach(p, h, c.id);
-        }));
-      };
-      const TA = side(pa), TB = side(pb), T = t3();
-      for (let a = 0; a < 3; a++) { for (const [vd, x] of TB[a]) addT(T, a, vd, x); for (const [vd, x] of TA[a]) addT(T, a, vd, -x); }
-      list.push({ p: g, k3, T });
+      if (c.kind === "weld") {
+        list.push({ p: g, k3: [0, 1, 2].map((a) => [0, 1, 2].map((b) => ks * (a === b ? 1 : 0) + (kn - ks) * n[a] * n[b])), T: diffT(attach(pa, g, c.id), attach(pb, g, c.id)), kind: "fix" });
+        continue;
+      }
+      // болт на розтяг: k = E·A_s/L_b, L_b = пакет + 0.7·d (половини головки й гайки)
+      const r = 0.8 * (c.d ?? 16), kb = (E * q.A) / (tOf(pa) + tOf(pb) + 0.7 * (c.d ?? 16));
+      const ring = (p: FPart) => [0, 1, 2, 3, 4, 5, 6, 7].map((k) => {
+        const f = (k * Math.PI) / 4, h: V3 = [g[0] + r * (Math.cos(f) * eu[0] + Math.sin(f) * ev[0]), g[1] + r * (Math.cos(f) * eu[1] + Math.sin(f) * ev[1]), g[2] + r * (Math.cos(f) * eu[2] + Math.sin(f) * ev[2])];
+        return attach(p, h, c.id);
+      });
+      const RA = ring(pa), RB = ring(pb);
+      // зріз — між середніми переміщеннями кілець; розтяг — 8 пружин по кільцю (головка/гайка затискає пакет)
+      list.push({ p: g, k3: tt(n, ks), T: diffT(avgT(RA), avgT(RB)), kind: "fix" });
+      const grp = boltId++;
+      RA.forEach((ta, k) => list.push({ p: g, k3: nn(n, kb / 8), T: diffT(ta, RB[k]), kind: cont ? "bolt" : "fix", s: sB, n, k: kb / 8, grp }));
+    }
+    if (cont) {
+      const lo = (p: FPart, ax: JAxis) => p.c[IDX[ax]] - (OA[p.axis][0] === ax ? p.a : p.b) / 2, hi = (p: FPart, ax: JAxis) => p.c[IDX[ax]] + (OA[p.axis][0] === ax ? p.a : p.b) / 2;
+      const u1 = Math.max(lo(pa, ua), lo(pb, ua)), u2 = Math.min(hi(pa, ua), hi(pb, ua)), v1 = Math.max(lo(pa, va), lo(pb, va)), v2 = Math.min(hi(pa, va), hi(pb, va));
+      if (u2 - u1 > 1 && v2 - v1 > 1) {
+        const mu_ = Math.min(16, Math.max(2, Math.round((u2 - u1) / 12))), mv = Math.min(16, Math.max(2, Math.round((v2 - v1) / 12)));
+        const A = ((u2 - u1) / mu_) * ((v2 - v1) / mv), kc = (E * A) / LREF, kt = (G * A) / LREF, d0 = (c.d ?? 16) / 2 + 1;
+        const holes = boltGrid(c).map(([bu, bv]) => toG(c.n, c.o, bu, bv));
+        for (let x = 0; x < mu_; x++) for (let y = 0; y < mv; y++) {
+          const g: V3 = [...c.o]; g[IDX[ua]] = u1 + (x + 0.5) * (u2 - u1) / mu_; g[IDX[va]] = v1 + (y + 0.5) * (v2 - v1) / mv;
+          if (holes.some((h) => Math.hypot(h[IDX[ua]] - g[IDX[ua]], h[IDX[va]] - g[IDX[va]]) < d0)) continue;
+          const T = diffT(attach(pa, g, c.id), attach(pb, g, c.id));
+          list.push({ p: g, k3: nn(n, kc), T, kind: "cont", s: sB, n, k: kc });
+          // тертя — одразу за своєю точкою контакту
+          if (mu > 0) list.push({ p: g, k3: tt(n, kt), T, kind: "fric", s: sB, n });
+        }
+      }
     }
     springs.set(c.id, list);
   }
@@ -196,25 +233,47 @@ export function checkFree(i: FreeInput): FreeResult {
   order.forEach((nd, k) => (pos[nd] = k));
   const nd = (NN + rigid.size) * 6;
   const map = (vd: number) => (vd < NN * 6 ? pos[Math.floor(vd / 6)] * 6 + (vd % 6) : vd);
-  const K = new SkyMatrix(nd);
-  for (const m of meshes.values()) for (const el of m.els) {
-    const g = el.nodes.flatMap((x) => [0, 1, 2, 3, 4, 5].map((k) => map(x * 6 + k)));
-    for (let a = 0; a < 24; a++) for (let b = 0; b <= a; b++) {
-      const v = el.sp.K[a][b];
-      if (!v) continue;
-      K.add(g[a], g[b], v);
-    }
-  }
-  for (const l of springs.values()) for (const s of l) {
+  const addSpring = (K: SkyMatrix, s: Spring) => {
     const rows = s.T.map((r) => [...r].map(([vd, c]) => [map(vd), c] as [number, number]));
     for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) {
       const k = s.k3[a][b];
       if (!k) continue;
       for (const [da, ca] of rows[a]) for (const [db, cb] of rows[b]) if (da >= db) K.add(da, db, k * ca * cb);
     }
+  };
+  const K0 = new SkyMatrix(nd);
+  for (const m of meshes.values()) for (const el of m.els) {
+    const g = el.nodes.flatMap((x) => [0, 1, 2, 3, 4, 5].map((k) => map(x * 6 + k)));
+    for (let a = 0; a < 24; a++) for (let b = 0; b <= a; b++) {
+      const v = el.sp.K[a][b];
+      if (!v) continue;
+      K0.add(g[a], g[b], v);
+    }
   }
-  const Fk = nd ? skyFactor(K) : null;
-  if (nd && !Fk) throw new Error("free:mechanism");
+  const all: Spring[] = [...springs.values()].flat();
+  for (const s of all) if (s.kind === "fix") addSpring(K0, s);
+  const sw = all.filter((s) => s.kind !== "fix");
+  // розклад для набору активних пружин (кеш за станом)
+  const cache = new Map<string, ReturnType<typeof skyFactor>>();
+  const factor = (on: boolean[]) => {
+    const key = on.map((x) => (x ? 1 : 0)).join("");
+    if (cache.has(key)) return cache.get(key)!;
+    let F;
+    if (!sw.length) F = nd ? skyFactor(K0) : null;
+    else {
+      const K = new SkyMatrix(nd);
+      K.rows = K0.rows.map((r) => new Map(r));
+      sw.forEach((s, k) => on[k] && addSpring(K, s));
+      F = skyFactor(K);
+    }
+    if (cache.size > 40) cache.clear();
+    cache.set(key, F);
+    return F;
+  };
+  if (nd && !factor(sw.map(() => true))) throw new Error("free:mechanism");
+  const relOf = (s: Spring, uv: (vd: number) => number) => s.T.map((r) => { let x = 0; for (const [vd, k] of r) x += k * uv(vd); return x; }) as V3;
+  const dotn = (a: number[], n: V3) => a[0] * n[0] + a[1] * n[1] + a[2] * n[2];
+  let noConv = false;
   const lm = meshes.get(loadPart.id), lr = rigid.get(loadPart.id);
   const results = i.combos.map((cb) => {
     const F: V3 = [cb.Fx ?? 0, cb.Fy ?? 0, cb.Fz ?? 0], M0: V3 = [cb.Mx ?? 0, cb.My ?? 0, cb.Mz ?? 0];
@@ -222,7 +281,7 @@ export function checkFree(i: FreeInput): FreeResult {
     const checks: Check[] = [];
     const plateSvm = new Map<string, number[]>();
     // навантажена деталь опорна — зусилля одразу в опору
-    if (!Fk || (lm === undefined && lr === undefined)) return { name: cb.name, checks, forces, maxUtil: 0, plateSvm };
+    if (!nd || (lm === undefined && lr === undefined)) return { name: cb.name, checks, forces, maxUtil: 0, plateSvm };
     const rhs = new Float64Array(nd);
     if (lr !== undefined) {
       const Mt = cross(sub(i.at, loadPart.c), F);
@@ -246,19 +305,78 @@ export function checkFree(i: FreeInput): FreeResult {
         for (let a = 0; a < 3; a++) rhs[map((lm.n0 + k) * 6 + a)] += F[a] / pts.length + fk[a];
       });
     }
-    const u = skySolve(Fk, rhs);
+    // нелінійність: болти — лише розтяг, контакт — лише стиск, тертя — зчеплення до μ·F_c, далі ковзання (сила μ·F_c)
+    const on = sw.map(() => true), slip = sw.map(() => false), fslip: V3[] = sw.map(() => [0, 0, 0]);
+    const idx = new Map(sw.map((s, k) => [s, k]));
+    let u = new Float64Array(nd);
     const uv = (vd: number) => u[map(vd)];
+    for (let it = 0; it < 40; it++) {
+      const Fk = factor(on.map((x, k) => x && !slip[k]));
+      if (!Fk) throw new Error("free:mechanism");
+      const b = Float64Array.from(rhs);
+      // сили ковзання: на A +f, на B −f → b −= Tᵀ·f
+      sw.forEach((s, k) => {
+        if (!slip[k] || !on[k]) return;
+        for (let a = 0; a < 3; a++) for (const [vd, c] of s.T[a]) b[map(vd)] -= c * fslip[k][a];
+      });
+      u = skySolve(Fk, b);
+      let changed = false;
+      // болт (усе кільце разом): розтягнутий, якщо зазор у середньому відкривається; контакт: стиснутий, якщо проникнення
+      const gapOf = (s: Spring) => dotn(relOf(s, uv), s.n!) * (s.s ?? 1);
+      const bg = new Map<number, number>();
+      sw.forEach((s) => { if (s.kind === "bolt") bg.set(s.grp!, (bg.get(s.grp!) ?? 0) + gapOf(s)); });
+      sw.forEach((s, k) => {
+        if (s.kind === "fric") return;
+        const want = s.kind === "bolt" ? bg.get(s.grp!)! > -1e-9 : gapOf(s) < 1e-9;
+        if (want !== on[k]) { on[k] = want; changed = true; }
+      });
+      if (mu > 0) sw.forEach((s, k) => {
+        if (s.kind !== "fric") return;
+        const cs = sw[k - 1], n = s.n!;
+        on[k] = on[k - 1];
+        if (!on[k]) { if (slip[k]) { slip[k] = false; changed = true; } return; }
+        const rel = relOf(s, uv), fc = cs.k! * Math.max(0, -dotn(relOf(cs, uv), n) * (cs.s ?? 1));
+        const ft = s.k3.map((row) => row[0] * rel[0] + row[1] * rel[1] + row[2] * rel[2]) as V3, mft = Math.hypot(...ft);
+        const tn = Math.hypot(...[0, 1, 2].map((a) => rel[a] - n[a] * dotn(rel, n)));
+        if (!slip[k] && mft > mu * fc * 1.001) { slip[k] = true; changed = true; }
+        if (slip[k]) {
+          // напрям — уздовж відносного зсуву; якщо зсуву вже немає, лишаємо попередній
+          const dir = tn > 1e-12 ? ([0, 1, 2].map((a) => (rel[a] - n[a] * dotn(rel, n)) / tn) as V3) : (Math.hypot(...fslip[k]) ? fslip[k].map((x) => x / Math.hypot(...fslip[k])) as V3 : [0, 0, 0] as V3);
+          // з релаксацією — ітерації сил ковзання сходяться без коливань
+          const nf = dir.map((x, a) => (it > 2 ? 0.5 * (x * mu * fc + fslip[k][a]) : x * mu * fc)) as V3;
+          if (Math.hypot(nf[0] - fslip[k][0], nf[1] - fslip[k][1], nf[2] - fslip[k][2]) > 5e-3 * mu * fc + 1) changed = true;
+          fslip[k] = nf;
+        }
+      });
+      if (!changed) break;
+      if (it === 39) noConv = true;
+    }
+    const springForce = (s: Spring): V3 => {
+      const k = idx.get(s);
+      if (k !== undefined && !on[k]) return [0, 0, 0];
+      if (k !== undefined && slip[k]) return fslip[k];
+      const rel = relOf(s, uv);
+      return s.k3.map((row) => row[0] * rel[0] + row[1] * rel[1] + row[2] * rel[2]) as V3;
+    };
     for (const c of conns) {
       // рівнодійна пружин зв'язку в точці o: f = k·(u_B − u_A); + розтяг, якщо B відходить від A уздовж n
-      const Fg: V3 = [0, 0, 0], Mg: V3 = [0, 0, 0];
-      for (const s of springs.get(c.id)!) {
-        const rel = s.T.map((r) => { let x = 0; for (const [vd, k] of r) x += k * uv(vd); return x; });
-        const fs = s.k3.map((row) => row[0] * rel[0] + row[1] * rel[1] + row[2] * rel[2]) as V3, ms = cross(sub(s.p, c.o), fs);
-        for (let a = 0; a < 3; a++) { Fg[a] += fs[a]; Mg[a] += ms[a]; }
-      }
+      const Fg: V3 = [0, 0, 0], Mg: V3 = [0, 0, 0], Fb: V3 = [0, 0, 0], Mb: V3 = [0, 0, 0];
       const n = unit(c.n), [ua, va] = UV[c.n], eu = unit(ua), ev = unit(va);
+      let Fc = 0, Tmax = 0, hasCont = false;
+      const tb = new Map<string, number>();
+      for (const s of springs.get(c.id)!) {
+        const fs = springForce(s), ms = cross(sub(s.p, c.o), fs);
+        for (let a = 0; a < 3; a++) { Fg[a] += fs[a]; Mg[a] += ms[a]; }
+        if (s.kind === "cont") { hasCont = true; Fc += Math.abs(dotn(fs, n)); }
+        if (c.kind === "bolts" && s.kind !== "cont" && s.kind !== "fric") {
+          for (let a = 0; a < 3; a++) { Fb[a] += fs[a]; Mb[a] += ms[a]; }
+          if (s.kind === "bolt" || (s.kind === "fix" && s.n)) { const key = s.p.join(","); tb.set(key, (tb.get(key) ?? 0) + dotn(fs, n) * (s.s ?? 1)); }
+        }
+      }
+      for (const v of tb.values()) Tmax = Math.max(Tmax, v);
       const dt = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
       const fr: FConnForce = { conn: c.id, N: dt(Fg, n), Vu: dt(Fg, eu), Vv: dt(Fg, ev), Mn: dt(Mg, n), Mu: dt(Mg, eu), Mv: dt(Mg, ev) };
+      if (hasCont) Object.assign(fr, { Fc, Tmax, bolt: { Vu: dt(Fb, eu), Vv: dt(Fb, ev), Mn: dt(Mb, n) } });
       forces.push(fr);
       checks.push(...connChecks(code, c, fr, P.get(c.a)!, P.get(c.b)!, gc, gn).map((x) => ({ ...x, clause: `${x.clause} · ${c.id}`, conn: c.id }) as Check));
       // переріз кожної деталі біля зв'язку
@@ -283,6 +401,7 @@ export function checkFree(i: FreeInput): FreeResult {
     const us = checks.map((x) => x.util);
     return { name: cb.name, checks, forces, maxUtil: us.some((x) => Number.isNaN(x)) ? NaN : Math.max(0, ...us), plateSvm };
   });
+  if (noConv) notes.push("contact:noconv");
   // огинаюча
   const m = new Map<string, Check & { combo: string; conn: string }>();
   for (const r of results) for (const ch of r.checks) {
@@ -359,10 +478,12 @@ function connChecks(code: CodeId, c: FConn, fr: FConnForce, pa: FPart, pb: FPart
   const Su = grid.reduce((a, [u]) => a + u * u, 0), Sv = grid.reduce((a, [, v]) => a + v * v, 0);
   const umax = Math.max(...grid.map(([u]) => Math.abs(u))), vmax = Math.max(...grid.map(([, v]) => Math.abs(v)));
   // розтяг болта: N/n + згин групи пружно навколо центра (у запас, без зони стиску і підважування)
-  const Tb = Math.max(0, fr.N / nb + (Sv ? (Math.abs(fr.Mu) * vmax) / Sv : 0) + (Su ? (Math.abs(fr.Mv) * umax) / Su : 0));
+  // з контактом пластин — розтяг найнавантаженішого болта з розрахунку (з підважуванням), зріз — лише болтів
+  const Tb = fr.Tmax !== undefined ? fr.Tmax : Math.max(0, fr.N / nb + (Sv ? (Math.abs(fr.Mu) * vmax) / Sv : 0) + (Su ? (Math.abs(fr.Mv) * umax) / Su : 0));
+  const sh = fr.bolt ?? fr;
   const out = checkBolts({ code, kind: c.friction ? "friction" : "bearing", d, boltClass: c.cls ?? (code === "DBN" ? "5.6" : "8.8"), shearPlanes: c.planes ?? 1,
     tmin, Ryn, Run, group: { rows: Math.max(1, c.rows ?? 2), cols: Math.max(1, c.cols ?? 2), px: c.pu ?? 60, py: c.pv ?? 60 }, a: c.edge ?? 2 * d,
-    Fx: fr.Vu, Fy: fr.Vv, M: fr.Mn, T: Tb * nb, gammaC: gc, gammaN: gn }).checks;
+    Fx: sh.Vu, Fy: sh.Vv, M: sh.Mn, T: Tb * nb, gammaC: gc, gammaN: gn }).checks;
   if (Tb > 0) {
     const dm = 1.6 * d, R = Math.min(ma.R, mb.R), fu = Run;
     const Bp = code === "DBN" ? Math.PI * dm * tmin * 0.58 * R * gc : (0.6 * Math.PI * dm * tmin * fu) / 1.25;

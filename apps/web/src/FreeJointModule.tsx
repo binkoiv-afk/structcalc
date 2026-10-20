@@ -1,7 +1,7 @@
 // Вільний вузол: свої деталі (пластини, профілі) і свої зв'язки між ними (шви, групи болтів), сила в будь-якій точці.
 // Програма розподіляє зусилля по зв'язках (пластини — МСЕ оболонки, профілі — жорсткі тіла, зв'язки — пружини)
 // і перевіряє кожен зв'язок, переріз деталі біля нього і напруження в пластинах між зв'язками.
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import type { FPlateMap } from "@structcalc/core";
 import {
   BOLT_CLASSES, BOLT_DIAMETERS, checkFree, CodeId, familiesFor, familySections, findSection, FConn, FPart, FreeResult, jointSpec, JExtra, Section, STEELS,
@@ -19,7 +19,7 @@ export interface FConnUI {
   rows: number; cols: number; pu: number; pv: number; d: number; cls: string; planes: number; friction: boolean;
 }
 export interface FCombo { name: string; Fx?: number; Fy?: number; Fz?: number; Mx?: number; My?: number; Mz?: number }
-export interface FreeState { parts: FPartUI[]; conns: FConnUI[]; ax: number; ay: number; az: number; combos: FCombo[]; sel: string; gammaC: number; gammaN: number; obj?: string; elem?: string }
+export interface FreeState { parts: FPartUI[]; conns: FConnUI[]; ax: number; ay: number; az: number; combos: FCombo[]; sel: string; gammaC: number; gammaN: number; mu?: number; obj?: string; elem?: string }
 
 const UVN: Record<Ax, [Ax, Ax]> = { x: ["y", "z"], y: ["z", "x"], z: ["x", "y"] };
 
@@ -98,16 +98,20 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
     const l = (() => { try { return familySections(fam ?? "RHS_COLD"); } catch { return []; } })();
     return l.find((x) => x.name === size) ?? l[Math.floor(l.length / 3)] ?? findSection("RHS_COLD", "100×100×5")!;
   };
-  const parts: FPart[] = s.parts.map((p) => ({ id: p.id, kind: p.kind, axis: p.axis, a: p.a, b: p.b, t: p.t, c: [p.cx, p.cy, p.cz], rot: p.rot, sec: p.kind === "profile" ? secOf(p.fam, p.size) : undefined, steel: okSteel(p.steel), role: p.role }));
-  const conns: FConn[] = s.conns.map((c) => ({ id: c.id, a: c.a, b: c.b, kind: c.kind, n: c.n, o: [c.ox, c.oy, c.oz], segs: segsOf(c), kf: c.kf,
-    rows: c.rows, cols: c.cols, pu: c.pu, pv: c.pv, d: c.d, cls: c.cls, planes: c.planes, friction: c.friction }));
+  const mk = (st: FreeState) => ({ parts: st.parts.map((p): FPart => ({ id: p.id, kind: p.kind, axis: p.axis, a: p.a, b: p.b, t: p.t, c: [p.cx, p.cy, p.cz], rot: p.rot, sec: p.kind === "profile" ? secOf(p.fam, p.size) : undefined, steel: okSteel(p.steel), role: p.role })),
+  conns: st.conns.map((c): FConn => ({ id: c.id, a: c.a, b: c.b, kind: c.kind, n: c.n, o: [c.ox, c.oy, c.oz], segs: segsOf(c), kf: c.kf,
+    rows: c.rows, cols: c.cols, pu: c.pu, pv: c.pv, d: c.d, cls: c.cls, planes: c.planes, friction: c.friction })) });
+  const { parts } = mk(s);
+  // розрахунок з контактом нелінійний — рахуємо за відкладеним станом, щоб введення не гальмувало
+  const ds = useDeferredValue(s);
   const calc = useMemo((): { r?: FreeResult; err?: string } => {
     try {
-      return { r: checkFree({ code, parts, conns, at: [s.ax, s.ay, s.az], gammaC: s.gammaC, gammaN: s.gammaN,
-        combos: s.combos.map((c) => ({ name: c.name, Fx: (c.Fx ?? 0) * 1e3, Fy: (c.Fy ?? 0) * 1e3, Fz: (c.Fz ?? 0) * 1e3, Mx: (c.Mx ?? 0) * 1e6, My: (c.My ?? 0) * 1e6, Mz: (c.Mz ?? 0) * 1e6 })) }) };
+      const { parts, conns } = mk(ds);
+      return { r: checkFree({ code, parts, conns, at: [ds.ax, ds.ay, ds.az], gammaC: ds.gammaC, gammaN: ds.gammaN, mu: ds.mu ?? 0,
+        combos: ds.combos.map((c) => ({ name: c.name, Fx: (c.Fx ?? 0) * 1e3, Fy: (c.Fy ?? 0) * 1e3, Fz: (c.Fz ?? 0) * 1e3, Mx: (c.Mx ?? 0) * 1e6, My: (c.My ?? 0) * 1e6, Mz: (c.Mz ?? 0) * 1e6 })) }) };
     } catch (e) { return { err: String((e as Error).message) }; }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, s]);
+  }, [code, ds]);
   const r = calc.r;
   const nameOf = (id: string) => { const p = s.parts.find((x) => x.id === id) ?? s.conns.find((x) => x.id === id); return p?.name || id; };
   const errText = (e: string) => e.startsWith("steelThk:") ? t("err_steelThk").replace("{s}", e.split(":")[1]).replace("{t}", e.split(":")[2]) : e.startsWith("free:") ? t(`fj_err_${e.slice(5)}`) : e;
@@ -252,12 +256,14 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
       {g && <div className="summary-gov"><div className="eyebrow">{t("governing")}</div><div>{nameOf(g.conn)} · {t(`chk_${g.key}`)}</div><div className="meta">{t("nl_combo")} {g.combo}</div></div>}
     </div>
   );
+  const hasC = !!r?.combos.some((cb) => cb.forces.some((x) => x.Fc !== undefined));
   const forcesTable = r && (
-    <table className="conn-values combo-res"><thead><tr><th>{t("fj_conn")}</th><th>{t("nl_combo")}</th><th>N</th><th>V_u</th><th>V_v</th><th>M_n</th><th>M_u</th><th>M_v</th></tr></thead>
+    <table className="conn-values combo-res"><thead><tr><th>{t("fj_conn")}</th><th>{t("nl_combo")}</th><th>N</th><th>V_u</th><th>V_v</th><th>M_n</th><th>M_u</th><th>M_v</th>{hasC && <><th>{t("fj_Fc")}</th><th>{t("fj_Tmax")}</th></>}</tr></thead>
       <tbody>{s.conns.flatMap((c) => r.combos.map((cb) => {
         const fr = cb.forces.find((x) => x.conn === c.id);
         if (!fr) return null;
-        return <tr key={`${c.id}${cb.name}`}><td>{c.name || c.id}</td><td>{cb.name}</td>{[fr.N, fr.Vu, fr.Vv].map((v, j) => <td key={j} className="mono">{(v / 1e3).toFixed(2)}</td>)}{[fr.Mn, fr.Mu, fr.Mv].map((v, j) => <td key={`m${j}`} className="mono">{(v / 1e6).toFixed(2)}</td>)}</tr>;
+        return <tr key={`${c.id}${cb.name}`}><td>{c.name || c.id}</td><td>{cb.name}</td>{[fr.N, fr.Vu, fr.Vv].map((v, j) => <td key={j} className="mono">{(v / 1e3).toFixed(2)}</td>)}{[fr.Mn, fr.Mu, fr.Mv].map((v, j) => <td key={`m${j}`} className="mono">{(v / 1e6).toFixed(2)}</td>)}
+          {hasC && <><td className="mono">{fr.Fc !== undefined ? (fr.Fc / 1e3).toFixed(2) : "—"}</td><td className="mono">{fr.Tmax !== undefined ? (fr.Tmax / 1e3).toFixed(2) : "—"}</td></>}</tr>;
       }))}</tbody></table>
   );
   // поради по зв'язках, що не проходять
@@ -320,6 +326,10 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
             <button id="fadd-weld" className="ghost add-part" onClick={() => addConn("weld")}>+ {t("fj_weld")}</button>
             <button id="fadd-bolts" className="ghost add-part" onClick={() => addConn("bolts")}>+ {t("fj_bolts")}</button>
           </div>
+          <div className="grid2 fj-mu">
+            <Num id="fj-mu" label={t("fj_mu")} v={s.mu ?? 0} step={0.05} on={(n) => set({ mu: Math.max(0, Math.min(0.8, n)) })} />
+            <p className="hint wide">{t("fj_muHint")}</p>
+          </div>
         </fieldset>
         <fieldset><legend><span className="step">3</span>{t("fj_loads")}</legend>{loads}</fieldset>
         {code === "DBN" && (
@@ -342,7 +352,7 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
               <JointViews r={{ ...r, combos: [], values: [] } as never} sel={s.sel} onPick={(id) => set({ sel: id })} utilOf={utilOf} t={t} />
               <p className="hint">{t("fj_viewHint")}</p>
             </div>
-            {r.notes.length > 0 && <div className="panel"><ul className="compat">{r.notes.map((n) => { const q = n.split(":"); return <li key={n} className="warn"><span className="cmp-ic">!</span><span>{q[0] === "offplate" ? t("fj_offplate").replace("{c}", nameOf(q[1])).replace("{p}", nameOf(q[2])) : t("fj_loose").replace("{p}", nameOf(q[1]))}</span></li>; })}</ul></div>}
+            {r.notes.length > 0 && <div className="panel"><ul className="compat">{r.notes.map((n) => { const q = n.split(":"); return <li key={n} className="warn"><span className="cmp-ic">!</span><span>{q[0] === "contact" ? t("fj_noconv") : q[0] === "offplate" ? t("fj_offplate").replace("{c}", nameOf(q[1])).replace("{p}", nameOf(q[2])) : t("fj_loose").replace("{p}", nameOf(q[1]))}</span></li>; })}</ul></div>}
             {adviceList && <div className="panel"><h3>{t("adv_title")}</h3>{adviceList}</div>}
             {stressMaps && <div className="panel"><h3>{t("fj_stress")}</h3>{stressMaps}<p className="hint">{t("fj_stressHint")}</p></div>}
             <div className="panel"><h3>{t("fj_forces")}</h3>{forcesTable}<p className="hint">{t("fj_forcesHint")}</p></div>
