@@ -20,14 +20,33 @@ const TR: Record<string, string> = { а: "a", б: "b", в: "v", г: "h", ґ: "g"
 const latin = (s: string) => [...s].map((c) => { const l = c.toLowerCase(), r = TR[l]; return r === undefined ? c : c === l ? r : r.charAt(0).toUpperCase() + r.slice(1); }).join("").replace(/[^\x20-\x7e]+/g, "-");
 const safeName = (s: string) => latin(s).replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "structcalc";
 
-export function downloadFile(items: SavedCalc[], lib: CalcFile["lib"]) {
+type Saver = { save: (r: { filename: string; data: string }) => Promise<unknown> } | null;
+/** Опубліковану сторінку claude.ai браузер не пускає до завантажень — там файл віддається через її можливість «downloads» */
+let saver: Promise<Saver> | null = null;
+const getSaver = () => {
+  const c = (window as unknown as { claude?: { use?: (n: string) => Promise<Saver> } }).claude;
+  if (!c?.use) return Promise.resolve(null);
+  return (saver ??= c.use("downloads").catch(() => null));
+};
+
+/** "ok" — збережено, "declined" — користувач відмовився, "fail" — не вдалося */
+export async function downloadFile(items: SavedCalc[], lib: CalcFile["lib"]): Promise<"ok" | "declined" | "fail"> {
   const f: CalcFile = { format: "structcalc", version: 1, items, lib };
-  const blob = new Blob([JSON.stringify(f, null, 1)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `${safeName(items.length === 1 ? items[0].name : "structcalc")}.structcalc.json`;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  const text = JSON.stringify(f, null, 1);
+  const filename = `${safeName(items.length === 1 ? items[0].name : "structcalc")}.structcalc.json`;
+  const sv = await getSaver();
+  if (sv) {
+    try { await sv.save({ filename, data: text }); return "ok"; }
+    catch (e) { return (e as { code?: string })?.code === "declined" ? "declined" : "fail"; }
+  }
+  try {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+    a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    return "ok";
+  } catch { return "fail"; }
 }
 
 /** Розбір файлу; null — не файл StructCalc */

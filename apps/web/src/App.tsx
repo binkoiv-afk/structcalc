@@ -141,6 +141,7 @@ export function App() {
     flash(t("fm_resetDone"));
   };
   const libOf = () => ({ materials: s.lib.materials, sections: s.lib.sections });
+  const dl = (items: SavedCalc[]) => { downloadFile(items, libOf()).then((r) => { if (r === "fail") flash(t("fm_dlFail")); }); };
   const importFile = async (f: File) => {
     const pf = parseFile(await f.text());
     if (!pf || !pf.items.length) { flash(t("fm_badFile")); return; }
@@ -203,7 +204,7 @@ export function App() {
             <button id="redo" disabled={!canRedo} onClick={() => undoRedo(1)} title={`${t("fm_redo")} (Ctrl+Y)`} aria-label={t("fm_redo")}>↷</button>
           </div>}
           {s.screen !== "home" && s.screen !== "library" && <FileMenu t={t} name={curCalc?.name} defName={defName} onSave={saveCalc}
-            onDownload={() => downloadFile([{ id: curId ?? newId(), name: curCalc?.name ?? defName(), screen: s.screen, code: s.code, date: Date.now(), data: pick(s, s.screen) as Record<string, unknown> }], libOf())}
+            onDownload={() => dl([{ id: curId ?? newId(), name: curCalc?.name ?? defName(), screen: s.screen, code: s.code, date: Date.now(), data: pick(s, s.screen) as Record<string, unknown> }])}
             onReset={resetCalc} />}
           <div className="seg" role="group" aria-label={t("code")}>
             {(["DBN", "EN"] as const).map((c) => (
@@ -218,7 +219,7 @@ export function App() {
 
       {s.screen === "home" && <Home go={go} goAsm={goAsm} t={t} saved={saved} open={openCalc}
         remove={(id) => putSaved(saved.filter((x) => x.id !== id))}
-        download={(c) => downloadFile([c], libOf())} downloadAll={() => downloadFile(saved, libOf())} importFile={importFile} />}
+        download={(c) => dl([c])} downloadAll={() => dl(saved)} importFile={importFile} />}
       {toast && <div className="toast" role="status">{toast}</div>}
       {s.screen === "beam" && (
         <BeamModule code={s.code} s={beam} set={(p) => set({ beam: { ...s.beam, ...p } })}
