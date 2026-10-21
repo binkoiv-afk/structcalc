@@ -5,7 +5,7 @@ import { ASM_ICONS } from "./AssemblyModule";
 import { useRef, useState } from "react";
 import type { SavedCalc } from "./projects";
 
-export type Screen = "home" | "beam" | "column" | "section" | "connection" | "generator" | "library" | "node" | "assembly";
+export type Screen = "home" | "beam" | "column" | "section" | "connection" | "generator" | "library" | "node" | "assembly" | "thermal";
 
 const ICONS: Record<string, JSX.Element> = {
   beam: <><path d="M6 22h36" strokeWidth="3" /><path d="M6 22l-3 6h6zM42 22l-3 6h6z" /><path d="M10 10v8M17 10v8M24 10v8M31 10v8M38 10v8" /></>,
@@ -34,8 +34,9 @@ const GROUPS: { key: string; hint?: string; items: Item[] }[] = [
     { id: "node", ready: true },
     ...KINDS.map((k) => ({ id: `conn_${k}`, ready: true, conn: k })),
   ] },
+  { key: "grp_env", items: [{ id: "thermal", ready: true }] },
   { key: "grp_ref", items: [{ id: "section", ready: true }, { id: "generator", ready: true }, { id: "library", ready: true }] },
-  { key: "grp_soon", items: [{ id: "concrete", ready: false }, { id: "timber", ready: false }, { id: "thermal", ready: false }] },
+  { key: "grp_soon", items: [{ id: "concrete", ready: false }, { id: "timber", ready: false }] },
 ];
 
 export function Home({ go, goAsm, t, saved, open, remove, download, downloadAll, importFile }: {
