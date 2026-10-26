@@ -7,6 +7,7 @@ import { STACK } from "./i18nStack";
 import { ASM } from "./i18nAsm";
 import { JOINT } from "./i18nJoint";
 import { THERMAL } from "./i18nThermal";
+import { RCI } from "./i18nRc";
 export const LANGS = ["uk", "ru", "en", "pl", "de", "fr"] as const;
 export type Lang = (typeof LANGS)[number];
 
@@ -585,7 +586,7 @@ const fr: Dict = {
 };
 
 export const DICTS: Record<Lang, Dict> = { uk, ru, en, pl, de, fr };
-for (const l of ["uk", "ru", "en"] as const) Object.assign(DICTS[l], CONN[l], NODE[l], SORT[l], STACK[l], ASM[l], JOINT[l], UX[l], THERMAL[l]);
+for (const l of ["uk", "ru", "en"] as const) Object.assign(DICTS[l], CONN[l], NODE[l], SORT[l], STACK[l], ASM[l], JOINT[l], UX[l], THERMAL[l], RCI[l]);
 
 export function makeT(lang: Lang) {
   const d = DICTS[lang];

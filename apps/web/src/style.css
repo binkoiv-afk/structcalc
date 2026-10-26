@@ -624,3 +624,26 @@ input.num-expr { border-color: var(--accent) !important; box-shadow: 0 0 0 2px v
 .th-verdict.ok { background: var(--ok-soft); } .th-verdict.warn { background: var(--warn-soft); } .th-verdict.fail { background: var(--fail-soft); }
 .th-clim { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 10px; }
 .th-cm { display: grid; grid-template-columns: 34px 1fr 1fr; gap: 4px; align-items: center; font-size: 12.5px; }
+
+/* v27 залізобетон */
+.rc-gap { margin-top: 10px; }
+.rc-layers { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.rc-lay { display: grid; grid-template-columns: 54px 64px 12px 1fr 34px; gap: 6px; align-items: center; }
+.rc-ln { font-size: 12.5px; color: var(--muted); }
+.rc-sw { display: grid; grid-template-columns: 80px 1fr 1fr 96px; gap: 6px; align-items: end; }
+.rc-svg { width: 100%; height: auto; display: block; }
+.rc-conc { fill: var(--soft); stroke: var(--ink); stroke-width: 1.5; }
+.rc-stirrup { fill: none; stroke: var(--muted); stroke-width: 1.2; }
+.rc-bar { fill: var(--ink); } .rc-bar.top { fill: var(--accent); }
+.rc-na { stroke: var(--fail); stroke-dasharray: 5 4; stroke-width: 1.2; }
+.rc-axis { stroke: var(--muted); stroke-width: 1; }
+.rc-eps { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+.rc-sig { fill: none; stroke: var(--fail); stroke-width: 2; }
+.rc-grid { stroke: var(--line); stroke-width: 1; }
+.rc-mk { fill: none; stroke: var(--accent); stroke-width: 2.2; }
+.rc-med { stroke: var(--fail); stroke-dasharray: 6 4; stroke-width: 1.2; }
+.rc-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 2; }
+.rc-t { font-size: 11.5px; fill: var(--ink); font-family: var(--mono); } .rc-t.end { text-anchor: end; } .rc-t.mid { text-anchor: middle; }
+.rc-forces td:first-child { width: 42%; }
+.rc-fix { background: var(--warn-soft); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+.rc-fix button { margin-left: 8px; padding: 3px 12px; }

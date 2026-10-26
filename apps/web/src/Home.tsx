@@ -5,7 +5,7 @@ import { ASM_ICONS } from "./AssemblyModule";
 import { useRef, useState } from "react";
 import type { SavedCalc } from "./projects";
 
-export type Screen = "home" | "beam" | "column" | "section" | "connection" | "generator" | "library" | "node" | "assembly" | "thermal";
+export type Screen = "home" | "beam" | "column" | "section" | "connection" | "generator" | "library" | "node" | "assembly" | "thermal" | "concrete";
 
 const ICONS: Record<string, JSX.Element> = {
   beam: <><path d="M6 22h36" strokeWidth="3" /><path d="M6 22l-3 6h6zM42 22l-3 6h6z" /><path d="M10 10v8M17 10v8M24 10v8M31 10v8M38 10v8" /></>,
@@ -28,7 +28,7 @@ const ICONS: Record<string, JSX.Element> = {
 // Збір снігу і вітру — не окремий розрахунок, а крок «Навантаження» всередині елемента.
 type Item = { id: string; ready: boolean; conn?: ConnKind; asm?: AsmTemplate; seis?: boolean };
 const GROUPS: { key: string; hint?: string; items: Item[] }[] = [
-  { key: "grp_members", hint: "grp_members_h", items: [{ id: "beam", ready: true }, { id: "column", ready: true }, { id: "truss", ready: true, asm: "truss" }, { id: "frame", ready: true, asm: "portal" }, { id: "dynamic", ready: true, asm: "portal", seis: true }] },
+  { key: "grp_members", hint: "grp_members_h", items: [{ id: "beam", ready: true }, { id: "column", ready: true }, { id: "truss", ready: true, asm: "truss" }, { id: "frame", ready: true, asm: "portal" }, { id: "dynamic", ready: true, asm: "portal", seis: true }, { id: "concrete", ready: true }] },
   { key: "grp_asm", hint: "grp_asm_h", items: [{ id: "assembly", ready: true }, { id: "canopy", ready: true, asm: "canopy" }, { id: "bracket", ready: true, asm: "bracket" }, { id: "platform", ready: true, asm: "platform" }] },
   { key: "grp_conn", hint: "grp_conn_h", items: [
     { id: "node", ready: true },
@@ -36,7 +36,7 @@ const GROUPS: { key: string; hint?: string; items: Item[] }[] = [
   ] },
   { key: "grp_env", items: [{ id: "thermal", ready: true }] },
   { key: "grp_ref", items: [{ id: "section", ready: true }, { id: "generator", ready: true }, { id: "library", ready: true }] },
-  { key: "grp_soon", items: [{ id: "concrete", ready: false }, { id: "timber", ready: false }] },
+  { key: "grp_soon", items: [{ id: "timber", ready: false }] },
 ];
 
 export function Home({ go, goAsm, t, saved, open, remove, download, downloadAll, importFile }: {
