@@ -30,3 +30,4 @@ export * from "./assembly/assembly";
 export * from "./assembly/templates";
 export * from "./thermal/thermal";
 export * from "./rc/rc";
+export * from "./rc/column";

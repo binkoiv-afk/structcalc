@@ -647,3 +647,11 @@ input.num-expr { border-color: var(--accent) !important; box-shadow: 0 0 0 2px v
 .rc-forces td:first-child { width: 42%; }
 .rc-fix { background: var(--warn-soft); border-radius: 8px; padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
 .rc-fix button { margin-left: 8px; padding: 3px 12px; }
+.rcc-mu { display: grid; grid-template-columns: 1fr 70px; gap: 6px; }
+.rcc-x { fill: none; stroke: var(--accent); stroke-width: 2.2; }
+.rcc-y { fill: none; stroke: var(--warn, #b7791f); stroke-width: 2.2; stroke-dasharray: 7 4; }
+.rcc-pt { stroke: var(--panel); stroke-width: 2; } .rcc-pt.x { fill: var(--accent); } .rcc-pt.y { fill: var(--warn, #b7791f); } .rcc-pt.end { opacity: 0.7; }
+.rcc-sec { max-width: 300px; margin: 0 auto; }
+.rcc-tab td, .rcc-tab th { text-align: left; } .rcc-tab td:first-child { width: 46%; }
+.rcc-calc { margin-left: auto; align-self: center; font-size: 12.5px; color: var(--muted); }
+.output.rcc-busy .results, .output.rcc-busy .report { opacity: 0.6; transition: opacity 0.2s; }
