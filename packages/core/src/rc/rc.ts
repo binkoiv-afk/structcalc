@@ -233,7 +233,7 @@ export function checkRc(i: RcInput): RcResult {
   const selfW = i.selfWeight === false ? 0 : (25 * Ac) / 1e6; // кН/м
 
   // зусилля
-  let MEd = 0, MEdNeg = 0, VEd = 0, Mqp = 0, MqpNeg = 0;
+  let MEd = 0, MEdNeg = 0, VEd = 0, V0 = 0, Mqp = 0, MqpNeg = 0;
   const NEd = i.mode === "section" ? i.N ?? 0 : 0;
   const L = i.L ?? 6, sup = i.supports ?? "ss";
   const gG = i.gammaG ?? (code === "DBN" ? 1.1 : 1.35), gQ = i.gammaQ ?? (code === "DBN" ? 1.2 : 1.5), psi2 = i.psi2 ?? 0.3;
@@ -244,12 +244,13 @@ export function checkRc(i: RcInput): RcResult {
     const [a, bb, cc] = COEF[sup];
     MEd = a * wd * L * L; MEdNeg = bb * wd * L * L;
     // поперечна сила на відстані d від грані опори (EN 1992-1-1, 6.2.1(8); рівномірне навантаження)
-    VEd = Math.max(0, cc * wd * L - (wd * d) / 1000);
+    V0 = cc * wd * L;
+    VEd = Math.max(0, V0 - (wd * d) / 1000);
     Mqp = a * wqp * L * L; MqpNeg = bb * wqp * L * L;
   } else {
     const M = i.M ?? 0;
     if (M >= 0) MEd = M; else MEdNeg = -M;
-    VEd = Math.abs(i.V ?? 0);
+    VEd = Math.abs(i.V ?? 0); V0 = VEd;
     const mq = i.Mqp ?? 0;
     if (mq >= 0) Mqp = mq; else MqpNeg = -mq;
   }
@@ -270,7 +271,9 @@ export function checkRc(i: RcInput): RcResult {
   const kk = Math.min(2, 1 + Math.sqrt(200 / d)), rhoL = Math.min(0.02, As / (i.b * d));
   const sigCp = Math.min(0.2 * conc.fcd, Math.max(0, (NEd * 1000) / Ac));
   const VRdc = Math.max((0.18 / gc) * kk * (100 * rhoL * fckS) ** (1 / 3), 0.035 * kk ** 1.5 * Math.sqrt(fckS)) * i.b * d / 1000 + (0.15 * sigCp * i.b * d) / 1000;
-  const Asw = i.sw.legs * barA(i.sw.d), z = 0.9 * d, nu1 = 0.6 * (1 - fckS / 250);
+  // α_cw — вплив стиску на V_Rd,max (ДСТУ Б В.2.6-156, 4.6.3.3; EN 6.2.3 (3)); ν1 = ν, бо σ_sw = f_ywd > 0.8·f_yk
+  const sc = Math.max(0, (NEd * 1000) / Ac), aCw = sc <= 0 ? 1 : sc <= 0.25 * conc.fcd ? 1 + sc / conc.fcd : sc <= 0.5 * conc.fcd ? 1.25 : Math.max(0, 2.5 * (1 - sc / conc.fcd));
+  const Asw = i.sw.legs * barA(i.sw.d), z = 0.9 * d, nu1 = 0.6 * (1 - fckS / 250) * aCw;
   let bestV = 0, cot = 2.5, VRds = 0, VRdmax = 0;
   for (let c = 1; c <= 2.5001; c += 0.01) {
     const vs = i.sw.s > 0 ? ((Asw / i.sw.s) * z * fywd * c) / 1000 : 0, vm = (i.b * z * nu1 * conc.fcd) / (c + 1 / c) / 1000, v = Math.min(vs, vm);
@@ -278,21 +281,37 @@ export function checkRc(i: RcInput): RcResult {
   }
   if (!bestV) { VRds = 0; VRdmax = (i.b * z * nu1 * conc.fcd) / (2.5 + 0.4) / 1000; }
   const rhoW = i.sw.s > 0 ? Asw / (i.sw.s * i.b) : 0, rhoWmin = (0.08 * Math.sqrt(fckS)) / fywk, sMax = 0.75 * d;
-  const clV = code === "DBN" ? "ДБН В.2.6-98:2009, 6.2.1.6–6.2.1.7; V_Rd,c, V_Rd,s, V_Rd,max — за ДСТУ Б В.2.6-156:2010 (ф-ли як EN 1992-1-1, 6.2.2–6.2.3)" : "EN 1992-1-1, 6.2.2 (6.2), 6.2.3 (6.8), (6.9)";
+  const DS = "ДСТУ Б В.2.6-156:2010";
+  const clV = code === "DBN" ? `${DS}, 4.6.2.1 (4.36), (4.37); 4.6.3.3 (4.44), (4.45)` : "EN 1992-1-1, 6.2.2 (6.2), 6.2.3 (6.8), (6.9)";
+  const aCwTxt = aCw !== 1 ? `; α_cw = ${f(aCw, 3)}` : "";
   if (VEd > 0) {
     const VRd = Math.max(VRdc, Math.min(VRds, VRdmax));
     checks.push(mkCheck("rcV", clV, VEd <= VRdc ? "V_Ed ≤ V_Rd,c" : "V_Ed ≤ V_Rd = min(V_Rd,s; V_Rd,max)",
-      `V_Rd,c = ${f(VRdc, 1)}; V_Rd,s = ${f(VRds, 1)} (cot θ = ${f(cot)}); V_Rd,max = ${f(VRdmax, 1)}; ${f(VEd, 1)} / ${f(VRd, 1)} kN`, VEd / VRd));
+      `V_Rd,c = ${f(VRdc, 1)}; V_Rd,s = ${f(VRds, 1)} (cot θ = ${f(cot)}); V_Rd,max = ${f(VRdmax, 1)}${aCwTxt}; ${f(VEd, 1)} / ${f(VRd, 1)} kN`, VEd / VRd));
+    // біля опори (без зменшення на d): V_Ed ≤ V_Rd,max; без розрахункових хомутів — V_Ed ≤ 0.5·b·d·ν·f_cd
+    const noSw = VEd <= VRdc, cap = noSw ? (0.5 * i.b * d * 0.6 * (1 - fckS / 250) * conc.fcd) / 1000 : VRdmax;
+    checks.push(mkCheck("rcV0", code === "DBN" ? (noSw ? `${DS}, 4.6.2.7, 4.6.1.4` : `${DS}, 4.6.1.4, 4.6.3.3 (4.45)`) : (noSw ? "EN 1992-1-1, 6.2.2 (6)" : "EN 1992-1-1, 6.2.1 (8), 6.2.3 (6.9)"),
+      noSw ? "V_Ed,0 ≤ 0.5·b·d·ν·f_cd" : "V_Ed,0 ≤ V_Rd,max", `${f(V0, 1)} / ${f(cap, 1)} kN`, V0 / Math.max(cap, 1e-9)));
   }
-  checks.push(mkCheck("rcRhoW", code === "DBN" ? "ДБН В.2.6-98:2009, 6.2.1.8, (6.2)" : "EN 1992-1-1, 9.2.2 (9.5N)", "ρ_w = A_sw/(s·b) ≥ 0.08·√f_ck / f_yk",
+  checks.push(mkCheck("rcRhoW", code === "DBN" ? `${DS}, 8.2.6.5 (8.4), (8.5)` : "EN 1992-1-1, 9.2.2 (9.5N)", "ρ_w = A_sw/(s·b) ≥ 0.08·√f_ck / f_yk",
     `${f(rhoW * 1000, 3)}‰ ≥ ${f(rhoWmin * 1000, 3)}‰`, rhoW > 0 ? rhoWmin / rhoW : Infinity));
-  checks.push(mkCheck("rcSw", code === "DBN" ? "ДСТУ Б В.2.6-156:2010 (як EN 1992-1-1, 9.2.2 (9.6N))" : "EN 1992-1-1, 9.2.2 (9.6N)", "s ≤ s_l,max = 0.75·d", `${f(i.sw.s, 0)} ≤ ${f(sMax, 0)} mm`, i.sw.s / sMax));
+  checks.push(mkCheck("rcSw", code === "DBN" ? `${DS}, 8.2.6.6 (8.6)` : "EN 1992-1-1, 9.2.2 (9.6N)", "s ≤ s_l,max = 0.75·d", `${f(i.sw.s, 0)} ≤ ${f(sMax, 0)} mm`, i.sw.s / sMax));
+  if (i.sw.legs >= 2) {
+    const st = (i.b - 2 * i.c - i.sw.d) / (i.sw.legs - 1), stMax = Math.min(0.75 * d, 600);
+    checks.push(mkCheck("rcSt", code === "DBN" ? `${DS}, 8.2.6.8 (8.8)` : "EN 1992-1-1, 9.2.2 (9.8N)", "s_t ≤ 0.75·d ≤ 600 mm", `${i.sw.legs} гілки; ${f(st, 0)} ≤ ${f(stMax, 0)} mm`, st / stMax));
+  }
+  // стиснута арматура, врахована в розрахунку, охоплюється хомутами з кроком ≤ 15·Ø
+  const comp = [...(MEd > 0 || (i.mode === "section" && !neg) ? topBars : []), ...(MEdNeg > 0 ? botBars : [])];
+  if (comp.length) {
+    const dc = Math.min(...comp.map((b) => b.d)), sc15 = 15 * dc;
+    checks.push(mkCheck("rcSwC", code === "DBN" ? `${DS}, 8.2.2.3` : "EN 1992-1-1, 9.2.1.2 (3)", "s ≤ 15·Ø_стисн", `${f(i.sw.s, 0)} ≤ 15·${dc} = ${f(sc15, 0)} mm`, i.sw.s / sc15));
+  }
 
   // 3. Конструктивні вимоги: A_s,min, A_s,max, просвіт між стрижнями
   const AsMin = Math.max(0.26 * conc.fctm / fyk, 0.0013) * i.b * d;
-  const clMin = code === "DBN" ? "ДСТУ Б В.2.6-156:2010 (як EN 1992-1-1, 9.2.1.1 (9.1N))" : "EN 1992-1-1, 9.2.1.1 (9.1N)";
+  const clMin = code === "DBN" ? `${DS}, 8.2.1.1 (8.1)` : "EN 1992-1-1, 9.2.1.1 (9.1N)";
   checks.push(mkCheck("rcAsMin", clMin, "A_s ≥ max(0.26·f_ctm/f_yk; 0.0013)·b·d", `${f(As, 0)} ≥ ${f(AsMin, 0)} mm²`, As > 0 ? AsMin / As : Infinity));
-  checks.push(mkCheck("rcAsMax", code === "DBN" ? "ДСТУ Б В.2.6-156:2010 (як EN 1992-1-1, 9.2.1.1 (3))" : "EN 1992-1-1, 9.2.1.1 (3)", "A_s + A_s' ≤ 0.04·A_c", `${f(As + AsTop, 0)} ≤ ${f(0.04 * Ac, 0)} mm²`, (As + AsTop) / (0.04 * Ac)));
+  checks.push(mkCheck("rcAsMax", code === "DBN" ? `${DS}, 8.2.1.4` : "EN 1992-1-1, 9.2.1.1 (3)", "A_s + A_s' ≤ 0.04·A_c", `${f(As + AsTop, 0)} ≤ ${f(0.04 * Ac, 0)} mm²`, (As + AsTop) / (0.04 * Ac)));
   for (const [layers, nm] of [[i.bot, "bot"], [i.top, "top"]] as const) layers.forEach((l, k) => {
     if (l.n < 2) return;
     const clear = (i.b - 2 * (i.c + i.sw.d) - l.n * l.d) / (l.n - 1), need = Math.max(l.d, 25);
@@ -317,12 +336,22 @@ export function checkRc(i: RcInput): RcResult {
     return { Mcr, sigmaS, x: cs.x, srMax, wk: srMax * de };
   };
   const cr = crackOf(Mqp, false), crN = MqpNeg > 0 ? crackOf(MqpNeg, true) : undefined;
-  const clW = code === "DBN" ? "ДБН В.2.6-98:2009, 7.3.4 (7.2), (7.3); s_r,max і ε_sm − ε_cm — як EN 1992-1-1, 7.3.4" : "EN 1992-1-1, 7.3.4 (7.8)–(7.11), табл. 7.1N";
+  const clW = code === "DBN" ? `${DS}, 5.3.4 (5.8)–(5.14), табл. 5.1` : "EN 1992-1-1, 7.3.4 (7.8)–(7.11), табл. 7.1N";
   for (const [c, M, key] of [[cr, Mqp, "rcCrack"], [crN, MqpNeg, "rcCrackNeg"]] as const) {
     if (!c || M <= 0) continue;
     checks.push(mkCheck(key, clW, "w_k = s_r,max·(ε_sm − ε_cm) ≤ w_lim",
       M <= c.Mcr ? `M_qp = ${f(M)} ≤ M_cr = ${f(c.Mcr)} kN·m — тріщин немає` : `M_qp = ${f(M)} > M_cr = ${f(c.Mcr)}; σ_s = ${f(c.sigmaS, 0)} MPa; s_r,max = ${f(c.srMax, 0)} mm; w_k = ${f(c.wk, 3)} ≤ ${f(wlim)} mm`,
       c.wk / wlim));
+  }
+
+  // A_s,min для обмеження тріщин: A_s·σ_s ≥ k_c·k·f_ct,eff·A_ct, σ_s = f_yk, k_c = 0.4 (згин), k = 1…0.65 (h = 300…800) — ДСТУ 5.3.2 (5.1), EN 7.3.2 (7.1)
+  const kH = i.h <= 300 ? 1 : i.h >= 800 ? 0.65 : 1 - (0.35 * (i.h - 300)) / 500;
+  for (const [M, flip, key] of [[Mqp, false, "rcAsMinCr"], [MqpNeg, true, "rcAsMinCrNeg"]] as const) {
+    if (M <= 0) continue;
+    const un = uncracked(i, flip, 1), Act = fibres(i, flip).strips.reduce((a, s) => a + (s.y > un.yc ? s.A : 0), 0);
+    const need = (0.4 * kH * conc.fctm * Act) / fyk, have = flip ? AsTop : As;
+    checks.push(mkCheck(key, code === "DBN" ? `${DS}, 5.3.2 (5.1)` : "EN 1992-1-1, 7.3.2 (7.1)", "A_s ≥ k_c·k·f_ct,eff·A_ct / f_yk",
+      `k = ${f(kH, 2)}; A_ct = ${f(Act / 100, 0)} cm²; ${f(have, 0)} ≥ ${f(need, 0)} mm²`, have > 0 ? need / have : Infinity));
   }
 
   // 5. Прогин балки: кривина κ = ζ·κ_II + (1 − ζ)·κ_I, ζ = 1 − 0.5·(M_cr/M)² (EN 7.4.3 (7.18), (7.19)); інтеграл Мора у звільненій схемі
@@ -360,7 +389,7 @@ export function checkRc(i: RcInput): RcResult {
     const nDen = i.deflN && i.deflN > 0 ? i.deflN : code === "DBN" ? deflectionLimitDSTU(sup === "cant" ? 2 * L : L) : 250;
     const flim = ((sup === "cant" ? 2 * Lmm : Lmm) / nDen);
     defl = { f: Math.abs(fmax), flim, n: nDen, xs, ws };
-    checks.push(mkCheck("rcDefl", code === "DBN" ? "ДБН В.2.6-98:2009, 7.4.4; ДСТУ Б В.1.2-3:2006, табл. 1" : "EN 1992-1-1, 7.4.1 (4), 7.4.3 (7.18)",
+    checks.push(mkCheck("rcDefl", code === "DBN" ? `ДБН В.2.6-98:2009, 7.4.4; ${DS}, 5.4.3.1 (5.18); ДСТУ Б В.1.2-3:2006, табл. 1` : "EN 1992-1-1, 7.4.1 (4), 7.4.3 (7.18)",
       `f ≤ ${sup === "cant" ? "2l" : "l"}/${f(nDen, 0)}`, `φ = ${f(phi, 1)}, E_c,eff = ${f(EcEff / 1000, 1)} GPa; f = ${f(Math.abs(fmax), 1)} ≤ ${f(flim, 1)} mm`, Math.abs(fmax) / flim));
   }
 

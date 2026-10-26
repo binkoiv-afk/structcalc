@@ -85,4 +85,24 @@ describe("залізобетон", () => {
     const ok = checkRc(beam({ M: 300, bot: [r.needBot!] }));
     expect(ok.checks.find((c) => c.key === "rcM")!.util).toBeLessThanOrEqual(1);
   });
+
+  it("ДСТУ Б В.2.6-156: α_cw, V біля опори, s_t, 15Ø, A_s,min за (5.1) — вручну", () => {
+    // стиск σ_cp = 600 кН / 0.15 м² = 4 МПа ≤ 0.25·f_cd = 5 → α_cw = 1 + 4/20 = 1.2
+    const rN = checkRc(beam({ N: 600, V: 250 }));
+    const z = 0.9 * d;
+    expect(rN.shear.VRdmax).toBeCloseTo(300 * z * 0.6 * (1 - 30 / 250) * 1.2 * 20 / (rN.shear.cot + 1 / rN.shear.cot) / 1000, 6);
+    // 2 гілки: s_t = 300 − 2·30 − 8 = 232 ≤ min(0.75·d; 600)
+    const r = checkRc(beam());
+    expect(r.checks.find((c) => c.key === "rcSt")!.util).toBeCloseTo(232 / (0.75 * d), 6);
+    // V ≤ V_Rd,c → V_Ed,0 ≤ 0.5·b·d·ν·f_cd (4.6.2.7)
+    const r0 = checkRc(beam({ V: 50 }));
+    expect(r0.checks.find((c) => c.key === "rcV0")!.util).toBeCloseTo(50 / (0.5 * 300 * d * 0.6 * 0.88 * 20 / 1000), 6);
+    // верхні 2Ø10 стиснуті → s ≤ 150
+    const rt = checkRc(beam({ top: [{ n: 2, d: 10 }], sw: { d: 8, legs: 2, s: 200, cls: "B500B" } }));
+    expect(rt.checks.find((c) => c.key === "rcSwC")!.util).toBeCloseTo(200 / 150, 6);
+    // h = 500: k = 1 − 0.35·200/500 = 0.86; A_ct = b·h/2 (бетонний переріз); f_ctm = 0.3·f_ck^(2/3)
+    const ca = r.checks.find((c) => c.key === "rcAsMinCr")!;
+    expect(ca.util * As).toBeCloseTo((0.4 * 0.86 * r.conc.fctm * 300 * 250) / 500, 6);
+    expect(r.conc.fctm).toBeCloseTo(0.3 * 30 ** (2 / 3), 6);
+  });
 });

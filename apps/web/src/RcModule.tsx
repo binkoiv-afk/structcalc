@@ -11,15 +11,17 @@ export interface RcState {
   concrete: string; rebar: string; bot: RcLayer[]; top: RcLayer[]; sw: { d: number; legs: number; s: number; cls: string };
   M: number; N: number; V: number; Mqp: number;
   L: number; supports: Sup; g: number; q: number; selfWeight: boolean; gammaG: string; gammaQ: string; psi2: number;
-  phi: number; wlim: number; deflN: number; obj: string; elem: string;
+  phi: number; wlim: number; exp?: string; deflN: number; obj: string; elem: string;
 }
 export const initialRc: RcState = {
   mode: "beam", shape: "rect", b: 250, h: 500, bf: 800, hf: 120, c: 25,
   concrete: "C25/30", rebar: "A500C", bot: [{ n: 3, d: 20 }], top: [{ n: 2, d: 12 }], sw: { d: 8, legs: 2, s: 150, cls: "A240C" },
   M: 120, N: 0, V: 90, Mqp: 70,
   L: 6, supports: "ss", g: 12, q: 8, selfWeight: true, gammaG: "", gammaQ: "", psi2: 0.3,
-  phi: 2, wlim: 0.3, deflN: 0, obj: "", elem: "",
+  phi: 2, wlim: 0.3, exp: "XC3", deflN: 0, obj: "", elem: "",
 };
+// граничні w_max за класом середовища (ДСТУ Б В.2.6-156, табл. 5.1; EN 1992-1-1, табл. 7.1N), мм
+const EXPOSURE: [string, number][] = [["X0", 0.4], ["XC1", 0.4], ["XC2", 0.3], ["XC3", 0.3], ["XC4", 0.3], ["XD1", 0.3], ["XD2", 0.3], ["XD3", 0.3], ["XS1", 0.3], ["XS2", 0.3], ["XS3", 0.3]];
 const num = (v: string) => (v.trim() === "" ? 0 : Number(v));
 const f = (v: number, n = 2) => (Number.isFinite(v) ? v.toFixed(n) : "—");
 
@@ -223,6 +225,7 @@ export function RcModule({ code, s, set, t }: { code: CodeId; s: RcState; set: (
               <label><span className="lbl">{t("rc_deflN")}</span><NumInput id="rc-defl" step={10} min={0} value={s.deflN} onChange={(e) => set({ deflN: Math.max(0, num(e.target.value)) })} /></label>
             </>}
             <label><span className="lbl">{t("rc_phi")}</span><NumInput id="rc-phi" step={0.1} min={0} value={s.phi} onChange={(e) => set({ phi: Math.max(0, num(e.target.value)) })} /></label>
+            <label><span className="lbl">{t("rc_exp")}</span><select id="rc-exp" value={s.exp ?? "XC3"} onChange={(e) => set({ exp: e.target.value, wlim: EXPOSURE.find((x) => x[0] === e.target.value)![1] })}>{EXPOSURE.map(([k]) => <option key={k}>{k}</option>)}</select></label>
             <label><span className="lbl">{t("rc_wlim")}</span><NumInput id="rc-wlim" step={0.05} min={0.05} value={s.wlim} onChange={(e) => set({ wlim: Math.max(0.05, num(e.target.value)) })} /></label>
           </div></div>
         </details>
@@ -272,7 +275,7 @@ export function RcModule({ code, s, set, t }: { code: CodeId; s: RcState; set: (
                 {s.mode === "beam" && <tr><td>{t("rc_m_beam")}</td><td>L = {s.L} m; {t(`rc_sup_${s.supports}`)}; g_k = {s.g}, q_k = {s.q} kN/m{s.selfWeight ? ` + ${f(r.selfW)} kN/m` : ""}; γ_G = {s.gammaG || (code === "DBN" ? "1.1" : "1.35")}, γ_Q = {s.gammaQ || (code === "DBN" ? "1.2" : "1.5")}, ψ₂ = {s.psi2}</td></tr>}
                 <tr><td>{t("rc_section")}</td><td>{s.shape === "T" ? `b_f×h_f = ${s.bf}×${s.hf}, ` : ""}b×h = {s.b}×{s.h} mm; {conc}; c = {s.c} mm</td></tr>
                 <tr><td>{t("rc_reinf")}</td><td>{rebar}: {t("rc_bot").toLowerCase()} {s.bot.filter((l) => l.n).map((l) => `${l.n}Ø${l.d}`).join(" + ") || "—"} (A_s = {f(r.As, 0)} mm²); {t("rc_top").toLowerCase()} {s.top.filter((l) => l.n).map((l) => `${l.n}Ø${l.d}`).join(" + ") || "—"} (A_s' = {f(r.AsTop, 0)} mm²); {t("rc_stirrups").toLowerCase()} Ø{s.sw.d} {swCls}, {s.sw.legs} {t("rc_legs")}, s = {s.sw.s} mm</td></tr>
-                <tr><td>φ(∞, t₀); w_lim</td><td>{s.phi}; {s.wlim} mm</td></tr>
+                <tr><td>φ(∞, t₀); {t("rc_exp")}; w_lim</td><td>{s.phi}; {s.exp ?? "XC3"}; {s.wlim} mm</td></tr>
               </tbody></table>
               <h2>{t("rc_forces")}</h2>
               {forces}

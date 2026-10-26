@@ -73,6 +73,12 @@ const uk: Dict = {
   chk_rcCrack: "Ширина тріщин (прольот)",
   chk_rcCrackNeg: "Ширина тріщин над опорою",
   chk_rcDefl: "Прогин",
+  chk_rcV0: "Поперечна сила біля опори",
+  chk_rcSt: "Відстань між гілками хомутів",
+  chk_rcSwC: "Хомути при стиснутій арматурі",
+  chk_rcAsMinCr: "Мін. армування проти тріщин (прольот)",
+  chk_rcAsMinCrNeg: "Мін. армування проти тріщин (опора)",
+  rc_exp: "Клас середовища",
 };
 const ru: Dict = {
   mod_concrete_d: "Балка или сечение: прочность по деформационной модели, срез, трещины, прогиб",
@@ -147,6 +153,12 @@ const ru: Dict = {
   chk_rcCrack: "Ширина трещин (пролёт)",
   chk_rcCrackNeg: "Ширина трещин над опорой",
   chk_rcDefl: "Прогиб",
+  chk_rcV0: "Поперечная сила у опоры",
+  chk_rcSt: "Расстояние между ветвями хомутов",
+  chk_rcSwC: "Хомуты при сжатой арматуре",
+  chk_rcAsMinCr: "Мин. армирование против трещин (пролёт)",
+  chk_rcAsMinCrNeg: "Мин. армирование против трещин (опора)",
+  rc_exp: "Класс среды",
 };
 const en: Dict = {
   mod_concrete_d: "Beam or section: strength by strain model, shear, cracks, deflection",
@@ -221,5 +233,11 @@ const en: Dict = {
   chk_rcCrack: "Crack width (span)",
   chk_rcCrackNeg: "Crack width (support)",
   chk_rcDefl: "Deflection",
+  chk_rcV0: "Shear at support face",
+  chk_rcSt: "Stirrup leg spacing",
+  chk_rcSwC: "Links at compression bars",
+  chk_rcAsMinCr: "Min. crack-control steel (span)",
+  chk_rcAsMinCrNeg: "Min. crack-control steel (support)",
+  rc_exp: "Exposure class",
 };
 export const RCI: Record<"uk" | "ru" | "en", Dict> = { uk, ru, en };
