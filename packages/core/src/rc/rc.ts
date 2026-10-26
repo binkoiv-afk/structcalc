@@ -65,7 +65,8 @@ const ES = 200000;
 export const BAR_DIAMETERS = [6, 8, 10, 12, 14, 16, 18, 20, 22, 25, 28, 32, 36, 40];
 const barA = (d: number) => (Math.PI * d * d) / 4;
 
-export interface RcLayer { n: number; d: number }
+/** ряд: n стрижнів Ø d; As — задана площа ряду, мм² (плити: на 1 м ширини; стрижні тоді умовні) */
+export interface RcLayer { n: number; d: number; As?: number }
 export interface RcInput {
   code: CodeId; concrete: string; rebar: string;
   /** переріз: ширина ребра b, висота h; полиця зверху bf×hf (0 — прямокутник), мм */
@@ -115,7 +116,8 @@ export function rcBars(i: RcInput): RcBar[] {
       if (k > 0) edge += Math.max(layers[k - 1].d, 25);
       const y = top ? edge + l.d / 2 : i.h - edge - l.d / 2;
       const w = i.b - 2 * (i.c + i.sw.d) - l.d;
-      for (let j = 0; j < l.n; j++) out.push({ y, z: l.n === 1 ? 0 : -w / 2 + (w * j) / (l.n - 1), d: l.d, A: barA(l.d), top });
+      const A1 = l.As !== undefined ? l.As / l.n : barA(l.d);
+      for (let j = 0; j < l.n; j++) out.push({ y, z: l.n === 1 ? 0 : -w / 2 + (w * j) / (l.n - 1), d: l.d, A: A1, top });
       edge += l.d;
     });
   };
@@ -416,4 +418,14 @@ export function checkRc(i: RcInput): RcResult {
     defl, checks, maxUtil,
     needBot: failOf("rcM") ? needOf(false) : undefined, needTop: failOf("rcMneg") ? needOf(true) : undefined,
   };
+}
+
+/** Кривина перерізу від M_qp, 1/мм: κ = ζ·κ_II + (1 − ζ)·κ_I з E_c,eff = E_cm/(1 + φ) (EN 7.4.3 (7.18)); flip — розтяг угорі */
+export function rcCurvature(i: RcInput, M_kNm: number, phi: number, flip = false): { k: number; Mcr: number; I1: number; I2: number; EcEff: number } {
+  const conc = rcConcrete(i.code, i.concrete), EcEff = conc.Ecm / (1 + phi), aeL = ES / EcEff, ae = ES / conc.Ecm;
+  const un = uncracked(i, flip, aeL), cs = crackedSection(i, flip, aeL), unS = uncracked(i, flip, ae);
+  const Mcr = (conc.fctm * unS.I) / (i.h - unS.yc) / 1e6, m = Math.abs(M_kNm);
+  const z = m <= Mcr ? 0 : 1 - 0.5 * (Mcr / m) ** 2;
+  const k = (z * m * 1e6) / (EcEff * cs.I) + ((1 - z) * m * 1e6) / (EcEff * un.I);
+  return { k, Mcr, I1: un.I, I2: cs.I, EcEff };
 }

@@ -655,3 +655,14 @@ input.num-expr { border-color: var(--accent) !important; box-shadow: 0 0 0 2px v
 .rcc-tab td, .rcc-tab th { text-align: left; } .rcc-tab td:first-child { width: 46%; }
 .rcc-calc { margin-left: auto; align-self: center; font-size: 12.5px; color: var(--muted); }
 .output.rcc-busy .results, .output.rcc-busy .report { opacity: 0.6; transition: opacity 0.2s; }
+.sl-edges { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.sl-bars { display: grid; grid-template-columns: 64px 1fr 1fr 64px; gap: 6px; align-items: center; margin-bottom: 6px; }
+.sl-head { font-size: 12px; color: var(--muted); margin-bottom: 2px; } .sl-bl { font-size: 13px; } .sl-as { text-align: right; font-size: 12.5px; }
+.sl-slab { fill: var(--soft); stroke: none; }
+.sl-cell { fill: var(--accent); } .sl-over { fill: var(--fail); }
+.sl-line { stroke: var(--ink); stroke-width: 1.2; } .sl-edge.pin .sl-line { stroke-width: 2.5; } .sl-edge.fix .sl-line { stroke-width: 3.5; } .sl-edge.free .sl-line { stroke-dasharray: 5 4; stroke: var(--muted); }
+.sl-hit { stroke: transparent; stroke-width: 16; } .sl-edge.click { cursor: pointer; } .sl-edge.click:hover .sl-line { stroke: var(--accent); }
+.sl-hatch { stroke: var(--ink); stroke-width: 1; } .sl-pin { fill: none; stroke: var(--ink); stroke-width: 1.1; }
+.sl-fields { margin-bottom: 8px; } .sl-fields button { font-size: 12.5px; padding: 5px 6px; }
+.sl-tab tr.sl-bad td { color: var(--fail); font-weight: 600; }
+.sl-rep-map { break-inside: avoid; max-width: 440px; }
