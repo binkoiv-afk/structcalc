@@ -5,7 +5,7 @@ import { ASM_ICONS } from "./AssemblyModule";
 import { useRef, useState } from "react";
 import type { SavedCalc } from "./projects";
 
-export type Screen = "home" | "beam" | "column" | "section" | "connection" | "generator" | "library" | "node" | "assembly" | "thermal" | "concrete" | "rccolumn" | "slab";
+export type Screen = "home" | "beam" | "column" | "section" | "connection" | "generator" | "library" | "node" | "assembly" | "thermal" | "concrete" | "rccolumn" | "slab" | "flat";
 
 const ICONS: Record<string, JSX.Element> = {
   beam: <><path d="M6 22h36" strokeWidth="3" /><path d="M6 22l-3 6h6zM42 22l-3 6h6z" /><path d="M10 10v8M17 10v8M24 10v8M31 10v8M38 10v8" /></>,
@@ -22,6 +22,7 @@ const ICONS: Record<string, JSX.Element> = {
   thermal: <><path d="M10 8v32M20 8v32M30 8v32" /><path d="M36 14h8M36 24h8M36 34h8" strokeWidth="2.5" /></>,
   concrete: <><rect x="8" y="12" width="32" height="24" /><circle cx="14" cy="30" r="2" /><circle cx="24" cy="30" r="2" /><circle cx="34" cy="30" r="2" /></>,
   rccolumn: <><rect x="16" y="4" width="16" height="40" /><circle cx="20" cy="9" r="1.6" /><circle cx="28" cy="9" r="1.6" /><circle cx="20" cy="39" r="1.6" /><circle cx="28" cy="39" r="1.6" /><path d="M20 12v24M28 12v24" strokeDasharray="2 3" /></>,
+  flat: <><path d="M3 18l15-8h27l-15 8z" /><path d="M3 18v4h27v-4M30 22l15-8v-4" /><path d="M9 22v18M21 22v18M37 16v18" strokeWidth="2.5" /><path d="M5 40h36" strokeDasharray="2 3" /></>,
   slab: <><path d="M4 20l14-8h26l-14 8z" /><path d="M4 20v6h26v-6M30 26l14-8v-6" /><path d="M10 31v10M38 23v10" strokeWidth="2.5" /></>,
   timber: <><rect x="8" y="10" width="32" height="28" rx="3" /><path d="M14 18c6 2 14 2 20 0M14 26c6 2 14 2 20 0" /></>,
 };
@@ -30,7 +31,7 @@ const ICONS: Record<string, JSX.Element> = {
 // Збір снігу і вітру — не окремий розрахунок, а крок «Навантаження» всередині елемента.
 type Item = { id: string; ready: boolean; conn?: ConnKind; asm?: AsmTemplate; seis?: boolean };
 const GROUPS: { key: string; hint?: string; items: Item[] }[] = [
-  { key: "grp_members", hint: "grp_members_h", items: [{ id: "beam", ready: true }, { id: "column", ready: true }, { id: "truss", ready: true, asm: "truss" }, { id: "frame", ready: true, asm: "portal" }, { id: "dynamic", ready: true, asm: "portal", seis: true }, { id: "concrete", ready: true }, { id: "rccolumn", ready: true }, { id: "slab", ready: true }] },
+  { key: "grp_members", hint: "grp_members_h", items: [{ id: "beam", ready: true }, { id: "column", ready: true }, { id: "truss", ready: true, asm: "truss" }, { id: "frame", ready: true, asm: "portal" }, { id: "dynamic", ready: true, asm: "portal", seis: true }, { id: "concrete", ready: true }, { id: "rccolumn", ready: true }, { id: "slab", ready: true }, { id: "flat", ready: true }] },
   { key: "grp_asm", hint: "grp_asm_h", items: [{ id: "assembly", ready: true }, { id: "canopy", ready: true, asm: "canopy" }, { id: "bracket", ready: true, asm: "bracket" }, { id: "platform", ready: true, asm: "platform" }] },
   { key: "grp_conn", hint: "grp_conn_h", items: [
     { id: "node", ready: true },
