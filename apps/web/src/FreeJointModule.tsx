@@ -7,7 +7,7 @@ import type { FPlateMap } from "@structcalc/core";
 import {
   BOLT_CLASSES, BOLT_DIAMETERS, boltPreload, checkFree, CodeId, familiesFor, familySections, findSection, FConn, FPart, FreeResult, jointSpec, JExtra, Section, STEELS,
 } from "@structcalc/core";
-import { CheckList, pct, T, utilState } from "./Results";
+import { CheckList, pct, T, utilState, enNorms } from "./Results";
 import { FamilyOptions } from "./SectionModule";
 import { JointViews } from "./JointModule";
 
@@ -383,7 +383,7 @@ export function FreeJointModule({ code, s, set, t, back }: { code: CodeId; s: Fr
                 <dl>
                   <div><dt>{t("rep_object")}</dt><dd>{s.obj || "—"}</dd></div>
                   <div><dt>{t("rep_element")}</dt><dd>{s.elem || "—"}</dd></div>
-                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-198:2014, розд. 16" : "EN 1993-1-8"}</dd></div>
+                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-198:2014, розд. 16" : enNorms("EN 1993-1-8")}</dd></div>
                   <div><dt>{t("rep_date")}</dt><dd>{new Date().toLocaleDateString()}</dd></div>
                 </dl>
               </header>

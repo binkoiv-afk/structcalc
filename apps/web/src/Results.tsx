@@ -1,4 +1,5 @@
 import type { BeamDesignResult, Check, CodeId } from "@structcalc/core";
+import { annex } from "@structcalc/core";
 import { Diagram } from "./Diagram";
 
 export type T = (k: string) => string;
@@ -8,6 +9,8 @@ export function utilState(u: number): "ok" | "warn" | "fail" {
   return u > 0.9 ? "warn" : "ok";
 }
 
+/** позначення норм EN з активним національним додатком */
+export const enNorms = (s: string) => (annex().id === "EU" ? s : `${s} + NA (${annex().prefix})`);
 export const pct = (u: number) => (Number.isFinite(u) ? `${Math.round(u * 100)}%` : u === Infinity ? "∞" : "—");
 
 export function UtilBar({ u }: { u: number }) {

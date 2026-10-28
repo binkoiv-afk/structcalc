@@ -4,6 +4,7 @@
 import type { CodeId } from "../codes/types";
 import type { Assembly, AsmMember, AsmNode, EndConn } from "./assembly";
 import type { BasePlateInput } from "../joints/basePlate";
+import { annex } from "../codes/annex";
 
 export type AsmTemplate = "canopy" | "truss" | "portal" | "bracket" | "platform";
 export const ASM_TEMPLATES: AsmTemplate[] = ["canopy", "truss", "portal", "bracket", "platform"];
@@ -26,7 +27,7 @@ export function asmTemplate(k: AsmTemplate, code: CodeId): Assembly {
   const st = code === "DBN" ? "C245" : "S235";
   const m = (id: string, i: string, j: string, family: string, size: string, endI: EndConn, endJ: EndConn, o: Partial<AsmMember> = {}): AsmMember =>
     ({ id, i, j, family, size, steel: st, endI, endJ, ...o });
-  const gf = code === "DBN" ? { G: 1.1, S: 1.14, W: 1.4 } : { G: 1.35, S: 1.5, W: 1.5 };
+  const gf = code === "DBN" ? { G: 1.1, S: 1.14, W: 1.4 } : { G: annex().e1990.gG, S: annex().e1990.gQ, W: annex().e1990.gQ };
   if (k === "canopy") {
     // навіс 6 × 4 м, висота 3 м, покрівля на 4 балках (конверт), стійки на базах
     const L = 6000, B = 4000, H = 3000;

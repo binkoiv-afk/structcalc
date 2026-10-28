@@ -9,7 +9,7 @@ import {
   A0_TABLE, k1Of, K1_TABLE, seisCoefDefault, SeismicInput,
 } from "@structcalc/core";
 import { AsmView, Pick, ShowMode, ViewKind } from "./AsmView";
-import { CheckList, pct, T, utilState } from "./Results";
+import { CheckList, pct, T, utilState, enNorms } from "./Results";
 import { FamilyOptions } from "./SectionModule";
 import type { JointReturn } from "./JointModule";
 import type { NodeState } from "./NodeModule";
@@ -635,7 +635,7 @@ export function AssemblyModule({ code, s, set, t, openNode }: { code: CodeId; s:
                 <dl>
                   <div><dt>{t("rep_object")}</dt><dd>{s.obj || "—"}</dd></div>
                   <div><dt>{t("rep_element")}</dt><dd>{s.elem || "—"}</dd></div>
-                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.1.2-2:2006; ДБН В.2.6-198:2014; EN 1992-4; EN 1993-1-3, 1-8" : "EN 1990; EN 1993-1-1, 1-3, 1-8; EN 1992-4"}</dd></div>
+                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.1.2-2:2006; ДБН В.2.6-198:2014; EN 1992-4; EN 1993-1-3, 1-8" : enNorms("EN 1990; EN 1993-1-1, 1-3, 1-8; EN 1992-4")}</dd></div>
                   <div><dt>{t("rep_date")}</dt><dd>{new Date().toLocaleDateString()}</dd></div>
                 </dl>
               </header>

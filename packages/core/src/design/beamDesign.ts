@@ -10,6 +10,7 @@ import { checkMemberDBN, deflectionLimitDSTU, PsiCase } from "../codes/dbn198";
 import { checkMemberEN } from "../codes/en1993";
 import { finalize } from "../codes/types";
 import type { CodeId, MemberResult } from "../codes/types";
+import { annex } from "../codes/annex";
 
 export type { LoadCategory };
 
@@ -67,7 +68,7 @@ export const DEFAULT_FACTORS: Record<CodeId, { gammaG: number; gammaQ: number }>
   // ДБН В.1.2-2: γf для металлоконструкций 1.05, для прочих постоянных 1.1–1.3; полезные 1.2–1.3
   DBN: { gammaG: 1.1, gammaQ: 1.3 },
   // EN 1990, табл. A1.2(B), формула 6.10
-  EN: { gammaG: 1.35, gammaQ: 1.5 },
+  get EN() { return { gammaG: annex().e1990.gG, gammaQ: annex().e1990.gQ }; },
 };
 
 export interface BeamDesignResult {

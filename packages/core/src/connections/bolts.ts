@@ -4,6 +4,7 @@
 
 import type { CodeId } from "../codes/types";
 import { Check, f, mkCheck } from "../codes/types";
+import { annex } from "../codes/annex";
 
 /** Площадь нетто по резьбе As (ISO 898-1), мм² */
 export const BOLT_AS: Record<number, number> = {
@@ -191,7 +192,7 @@ export function checkBolts(i: BoltInput): ConnResult {
 
   // EN 1993-1-8, табл. 3.4 (болты и заклепки)
   const CL = "EN 1993-1-8";
-  const gM2 = i.gammaM2 ?? 1.25;
+  const gM2 = i.gammaM2 ?? annex().e1993.gM2;
   const e1 = i.a, p1 = s;
   const e2 = i.e2 ?? i.a;
   const p2 = along === "x" ? i.group.py : i.group.px;
@@ -266,7 +267,7 @@ export interface ScrewInput {
 /** Самонарезающие винты (саморезы): EN 1993-1-3, табл. 8.2. */
 export function checkScrews(i: ScrewInput): ConnResult {
   const CL = "EN 1993-1-3, табл. 8.2";
-  const gM2 = i.gammaM2 ?? 1.25;
+  const gM2 = i.gammaM2 ?? annex().e1993.gM2;
   const r = i.t1 / i.t;
   const a1 = Math.min(3.2 * Math.sqrt(i.t / i.d), 2.1);
   const a2 = 2.1;

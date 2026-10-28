@@ -5,6 +5,7 @@
 //   аварийное (6.11b) G + Ad + ψ1,1·Q1 + Σψ2,i·Qi.
 
 import type { CodeId } from "../codes/types";
+import { annex } from "../codes/annex";
 
 /** вид нагрузки: постоянная, длительная, кратковременная, особая (аварийная) */
 export type LoadCategory = "G" | "L" | "Q" | "A";
@@ -73,7 +74,7 @@ export function buildCombinations(loads: CombLoad[], o: CombOptions): Combinatio
   const G = loads.map((l, i) => (l.cat === "G" ? i : -1)).filter((i) => i >= 0);
   const name = (i: number) => loads[i].label ?? `${loads[i].cat}${i + 1}`;
   const gf = (i: number) => loads[i].gf ?? (loads[i].cat === "G" ? o.gammaG : o.gammaQ);
-  const gFav = o.gammaGfav ?? (o.code === "DBN" ? 0.9 : 1.0);
+  const gFav = o.gammaGfav ?? (o.code === "DBN" ? 0.9 : annex().e1990.gGinf), na = annex().e1990;
   const out: Combination[] = [];
   const seen = new Set<string>();
   const push = (kind: Combination["kind"], f: number[]) => {
@@ -111,9 +112,16 @@ export function buildCombinations(loads: CombLoad[], o: CombOptions): Combinatio
           } else {
             const fu = base(false), fs = base(true);
             S.forEach((i, k) => {
-              const psi = k === 0 ? 1 : loads[i].psi0 ?? 0.7;
+              const psi = k === 0 ? 1 : loads[i].psi0 ?? na.psi0;
               fu[i] = psi * gf(i); fs[i] = psi;
             });
+            if (na.eq === "6.10ab") {
+              // (6.10a): γ_G·G + Σγ_Q·ψ0·Q; (6.10b): ξ·γ_G·G + γ_Q·Q1 + Σγ_Q·ψ0·Qi
+              const fa = base(false);
+              S.forEach((i) => { fa[i] = (loads[i].psi0 ?? na.psi0) * gf(i); });
+              push("ULS", fa);
+              if (gMode === "unfav") for (const i of G) fu[i] *= na.xi;
+            }
             push("ULS", fu);
             if (gMode === "unfav") push("SLS", fs);
             for (const a of accLoads) {

@@ -8,7 +8,7 @@ import {
   JointResult, JPart, jointSpec, JExtra, NodeCombo, Section, steel, STEELS,
 } from "@structcalc/core";
 import { jointDefaults } from "@structcalc/core";
-import { CheckList, pct, T, utilState } from "./Results";
+import { CheckList, pct, T, utilState, enNorms } from "./Results";
 import { FamilyOptions } from "./SectionModule";
 import { casesToCombos, NodeCase } from "./NodeModule";
 
@@ -563,7 +563,7 @@ export function JointModule({ code, s, set, t, back, onReturn }: {
                 <dl>
                   <div><dt>{t("rep_object")}</dt><dd>{s.obj || "—"}</dd></div>
                   <div><dt>{t("rep_element")}</dt><dd>{s.elem || (s.link ? `${t("asm_member")} ${s.link.member} · ${t("asm_node")} ${s.link.node}` : "—")}</dd></div>
-                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-198:2014; EN 1993-1-8 (T-елементи, вирив блоку)" : "EN 1993-1-8; EN 1993-1-1"}</dd></div>
+                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-198:2014; EN 1993-1-8 (T-елементи, вирив блоку)" : enNorms("EN 1993-1-8; EN 1993-1-1")}</dd></div>
                   <div><dt>{t("rep_date")}</dt><dd>{new Date().toLocaleDateString()}</dd></div>
                 </dl>
               </header>

@@ -1,6 +1,6 @@
 import type { BeamDesignInput, BeamDesignResult, CodeId } from "@structcalc/core";
 import { Scheme } from "./Scheme";
-import { CheckList, Combos, Diagrams, governing, pct, SectionProps, T, utilState } from "./Results";
+import { CheckList, Combos, Diagrams, governing, pct, SectionProps, T, utilState, enNorms } from "./Results";
 
 // Отчет в стиле статрасчета: вывод → исходные данные → схема и усилия → проверки → характеристики.
 export function Report({ r, input, t, obj, elem, steel, code }: {
@@ -26,7 +26,7 @@ export function Report({ r, input, t, obj, elem, steel, code }: {
         <dl>
           <div><dt>{t("rep_object")}</dt><dd>{obj || "—"}</dd></div>
           <div><dt>{t("rep_element")}</dt><dd>{elem || "—"}</dd></div>
-          <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-198:2014, ДБН В.1.2-2:2006" : "EN 1990, EN 1993-1-1"}</dd></div>
+          <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-198:2014, ДБН В.1.2-2:2006" : enNorms("EN 1990, EN 1993-1-1")}</dd></div>
           <div><dt>{t("rep_date")}</dt><dd>{date}</dd></div>
         </dl>
       </header>

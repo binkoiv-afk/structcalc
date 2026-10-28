@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { downloadFile, loadSaved, newId, parseFile, SavedCalc, storeSaved } from "./projects";
 import { FileMenu } from "./FileMenu";
-import { CodeId, DEFAULT_FACTORS, FAMILIES, setCustomMaterials, setCustomSections, STEELS } from "@structcalc/core";
+import { ANNEXES, AnnexId, CodeId, DEFAULT_FACTORS, FAMILIES, setAnnex, setCustomMaterials, setCustomSections, STEELS } from "@structcalc/core";
 import { GeneratorModule, GenState, initialGen, initialLib, LibraryModule, LibState } from "./GeneratorModule";
 import { Lang, LANGS, makeT } from "./i18n";
 import { Home, Screen } from "./Home";
@@ -21,7 +21,7 @@ import { initialSlab, SlabModule, SlabState } from "./SlabModule";
 import { FlatSlabModule, FlatState, initialFlat } from "./FlatSlabModule";
 
 interface AppState {
-  lang: Lang; code: CodeId; screen: Screen;
+  lang: Lang; code: CodeId; annex?: AnnexId; screen: Screen;
   beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState; conn: ConnState; gen: GenState; lib: LibState; node: NodeState; asm: AsmState; thermal: ThermalState; rc: RcState; rcc: RcColState; slab: SlabState; flat: FlatState;
   /** відкритий збережений розрахунок (id у «Моїх розрахунках») для кожного екрана */
   cur?: Partial<Record<Screen, string>>;
@@ -65,7 +65,7 @@ export function App() {
   // історія змін для Ctrl+Z / Ctrl+Y — окремо для кожного екрана, лише його частини стану
   const hist = useRef<{ past: Partial<Record<Screen, Partial<AppState>[]>>; future: Partial<Record<Screen, Partial<AppState>[]>>; last: number; lastScreen: Screen | null }>({ past: {}, future: {}, last: 0, lastScreen: null });
   const [, bump] = useState(0);
-  const pick = (o: AppState, sc: Screen): Partial<AppState> => { const r: Partial<AppState> = { code: o.code }; for (const k of SLOTS[sc]) (r as Record<string, unknown>)[k] = o[k]; return r; };
+  const pick = (o: AppState, sc: Screen): Partial<AppState> => { const r: Partial<AppState> = { code: o.code, annex: o.annex }; for (const k of SLOTS[sc]) (r as Record<string, unknown>)[k] = o[k]; return r; };
   const persist = (n: AppState) => { try { localStorage.setItem(KEY, JSON.stringify(n)); } catch { /* ignore */ } };
   const set = (p: Partial<AppState>, opt?: { noHist?: boolean }) => setS((o) => {
     const n = { ...o, ...p };
@@ -161,6 +161,8 @@ export function App() {
     else flash(t("fm_imported").replace("{n}", String(pf.items.length)));
   };
   // свої матеріали і перерізи — у каталоги ядра до розрахунку модулів
+  // національний додаток EN — до розрахунку модулів
+  setAnnex(s.annex ?? "EU");
   setCustomMaterials(s.lib.materials);
   setCustomSections(s.lib.sections);
   // якщо свій матеріал / переріз видалено — повертаємося до типових
@@ -182,9 +184,11 @@ export function App() {
     nav("assembly");
     window.scrollTo(0, 0);
   };
-  const setCode = (code: CodeId) => {
+  const setCode = (code: CodeId, an?: AnnexId) => {
+    if (an) setAnnex(an);
     const steel = code === "DBN" ? "C245" : "S235";
-    set({ code, beam: { ...s.beam, steel, ...DEFAULT_FACTORS[code] }, column: { ...s.column, steel } });
+    const keep = code === s.code; // інша країна тієї ж родини норм — матеріали лишаються
+    set({ code, annex: an ?? s.annex, beam: { ...s.beam, ...(keep ? {} : { steel }), ...DEFAULT_FACTORS[code] }, column: keep ? s.column : { ...s.column, steel } });
   };
 
   return (
@@ -211,17 +215,18 @@ export function App() {
           {s.screen !== "home" && s.screen !== "library" && <FileMenu t={t} name={curCalc?.name} defName={defName} onSave={saveCalc}
             onDownload={() => dl([{ id: curId ?? newId(), name: curCalc?.name ?? defName(), screen: s.screen, code: s.code, date: Date.now(), data: pick(s, s.screen) as Record<string, unknown> }])}
             onReset={resetCalc} />}
-          <div className="seg" role="group" aria-label={t("code")}>
-            {(["DBN", "EN"] as const).map((c) => (
-              <button key={c} className={s.code === c ? "on" : ""} onClick={() => setCode(c)}>{c === "DBN" ? "ДБН" : "EN"}</button>
-            ))}
-          </div>
+          <select id="norm" className="norm-sel" value={s.code === "DBN" ? "DBN" : `EN:${s.annex ?? "EU"}`} aria-label={t("code")} title={t("code")}
+            onChange={(e) => { const v = e.target.value; if (v === "DBN") setCode("DBN"); else setCode("EN", v.slice(3) as AnnexId); }}>
+            <option value="DBN">{t("norm_dbn")}</option>
+            {Object.values(ANNEXES).map((a) => <option key={a.id} value={`EN:${a.id}`}>{a.name[s.lang === "ru" ? 1 : s.lang === "uk" ? 0 : 2]}</option>)}
+          </select>
           <select id="lang" value={s.lang} onChange={(e) => set({ lang: e.target.value as Lang })} aria-label="language">
             {LANGS.map((l) => <option key={l} value={l}>{l.toUpperCase()}</option>)}
           </select>
         </div>
       </header>
 
+      <div key={s.code === "DBN" ? "DBN" : s.annex ?? "EU"} className="norm-scope">
       {s.screen === "home" && <Home go={go} goAsm={goAsm} t={t} saved={saved} open={openCalc}
         remove={(id) => putSaved(saved.filter((x) => x.id !== id))}
         download={(c) => dl([c])} downloadAll={() => dl(saved)} importFile={importFile} />}
@@ -248,6 +253,7 @@ export function App() {
       {s.screen === "concrete" && <RcModule code={s.code} s={s.rc} set={(p) => set({ rc: { ...s.rc, ...p } })} t={t} />}
       {s.screen === "library" && <LibraryModule lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
       {s.screen === "section" && <SectionModule code={s.code} s={sec} set={(p) => set({ sec: { ...s.sec, ...p } })} lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
+      </div>
     </div>
   );
 }

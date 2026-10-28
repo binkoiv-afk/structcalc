@@ -5,6 +5,7 @@
 import type { Check, CodeId } from "../codes/types";
 import { mkCheck } from "../codes/types";
 import { deflectionLimitDSTU } from "../codes/dbn198";
+import { annex } from "../codes/annex";
 
 export interface RcConcrete {
   id: string;
@@ -35,10 +36,11 @@ const EN_FCK: [string, number][] = [["C12/15", 12], ["C16/20", 16], ["C20/25", 2
 
 export function rcConcretes(code: CodeId): RcConcrete[] {
   if (code === "DBN") return DBN_T31.map(([id, fck, fcd, fctm, fctk, Ecm, Ecd, ec1, ecu]) => ({ id, fck, fcd, fctm, fctk, Ecm: Ecm * 1000, Ecd: Ecd * 1000, ec1: ec1 / 1000, ecu: ecu / 1000 }));
-  // EN 1992-1-1, табл. 3.1; γ_c = 1.5, α_cc = 1.0
+  // EN 1992-1-1, табл. 3.1; γ_c, α_cc — з національного додатка (рекомендовані 1.5 і 1.0)
+  const { gc, acc } = annex().e1992;
   return EN_FCK.map(([id, fck]) => {
     const fctm = 0.3 * fck ** (2 / 3), Ecm = 22000 * ((fck + 8) / 10) ** 0.3;
-    return { id, fck, fcd: fck / 1.5, fctm, fctk: 0.7 * fctm, Ecm, Ecd: Ecm, ec1: 0.002, ecu: 0.0035 };
+    return { id, fck, fcd: (acc * fck) / gc, fctm, fctk: 0.7 * fctm, Ecm, Ecd: Ecm, ec1: 0.002, ecu: 0.0035 };
   });
 }
 export const rcConcrete = (code: CodeId, id: string) => rcConcretes(code).find((c) => c.id === id) ?? rcConcretes(code)[3];
@@ -51,7 +53,7 @@ export const RC_REBARS: Record<CodeId, RcRebar[]> = {
 };
 /** γ_s: ДБН — табл. 2.1 (залежить від класу і діаметра); EN — 1.15 */
 export function gammaS(code: CodeId, cls: string, d: number): number {
-  if (code === "EN") return 1.15;
+  if (code === "EN") return annex().e1992.gs;
   if (cls === "A240C") return 1.05;
   if (cls === "A400C") return 1.1;
   if (cls === "A500C") return d <= 22 ? 1.15 : 1.2;
@@ -238,7 +240,7 @@ export function checkRc(i: RcInput): RcResult {
   let MEd = 0, MEdNeg = 0, VEd = 0, V0 = 0, Mqp = 0, MqpNeg = 0;
   const NEd = i.mode === "section" ? i.N ?? 0 : 0;
   const L = i.L ?? 6, sup = i.supports ?? "ss";
-  const gG = i.gammaG ?? (code === "DBN" ? 1.1 : 1.35), gQ = i.gammaQ ?? (code === "DBN" ? 1.2 : 1.5), psi2 = i.psi2 ?? 0.3;
+  const gG = i.gammaG ?? (code === "DBN" ? 1.1 : annex().e1990.gG), gQ = i.gammaQ ?? (code === "DBN" ? 1.2 : annex().e1990.gQ), psi2 = i.psi2 ?? 0.3;
   const wd = gG * ((i.g ?? 0) + selfW) + gQ * (i.q ?? 0), wqp = (i.g ?? 0) + selfW + psi2 * (i.q ?? 0);
   // коефіцієнти: M+ = a·wL², M− = b·wL², V = c·wL (пружна робота)
   const COEF: Record<string, [number, number, number]> = { ss: [1 / 8, 0, 1 / 2], fp: [9 / 128, 1 / 8, 5 / 8], ff: [1 / 24, 1 / 12, 1 / 2], cant: [0, 1 / 2, 1] };
@@ -269,10 +271,10 @@ export function checkRc(i: RcInput): RcResult {
   if (NEd > 0) checks.push(mkCheck("rcN", clM, "N_Ed ≤ N_Rd (κ = 0, ε ≤ ε_c1)", `${f(NEd, 1)} / ${f(pos.NRd, 1)} kN; без впливу прогину (6.1.3) — для гнучких колон окремо`, NEd / pos.NRd));
 
   // 2. Похилі перерізи: V_Rd,c (6.2.a,b), V_Rd,s (6.8), V_Rd,max (6.9); ДБН — 6.2.1.6–6.2.1.8 і ДСТУ Б В.2.6-156 (ті ж формули)
-  const gc = code === "DBN" ? 1.3 : 1.5, fckS = conc.fck;
+  const na = annex().e1992, gc = code === "DBN" ? 1.3 : na.gc, fckS = conc.fck, cR = code === "DBN" ? 0.18 : na.cRdc, vK = code === "DBN" ? 0.035 : na.vminK, k1s = code === "DBN" ? 0.15 : na.k1;
   const kk = Math.min(2, 1 + Math.sqrt(200 / d)), rhoL = Math.min(0.02, As / (i.b * d));
   const sigCp = Math.min(0.2 * conc.fcd, Math.max(0, (NEd * 1000) / Ac));
-  const VRdc = Math.max((0.18 / gc) * kk * (100 * rhoL * fckS) ** (1 / 3), 0.035 * kk ** 1.5 * Math.sqrt(fckS)) * i.b * d / 1000 + (0.15 * sigCp * i.b * d) / 1000;
+  const VRdc = Math.max((cR / gc) * kk * (100 * rhoL * fckS) ** (1 / 3), vK * kk ** 1.5 * Math.sqrt(fckS)) * i.b * d / 1000 + (k1s * sigCp * i.b * d) / 1000;
   // α_cw — вплив стиску на V_Rd,max (ДСТУ Б В.2.6-156, 4.6.3.3; EN 6.2.3 (3)); ν1 = ν, бо σ_sw = f_ywd > 0.8·f_yk
   const sc = Math.max(0, (NEd * 1000) / Ac), aCw = sc <= 0 ? 1 : sc <= 0.25 * conc.fcd ? 1 + sc / conc.fcd : sc <= 0.5 * conc.fcd ? 1.25 : Math.max(0, 2.5 * (1 - sc / conc.fcd));
   const Asw = i.sw.legs * barA(i.sw.d), z = 0.9 * d, nu1 = 0.6 * (1 - fckS / 250) * aCw;

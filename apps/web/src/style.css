@@ -687,3 +687,5 @@ input.num-expr { border-color: var(--accent) !important; box-shadow: 0 0 0 2px v
 .fs-ctab td, .fs-ctab th { white-space: nowrap; }
 .fs-rep-map { break-inside: avoid; max-width: 520px; }
 input.bad { border-color: var(--fail); }
+.norm-scope { display: contents; }
+.norm-sel { max-width: 230px; }

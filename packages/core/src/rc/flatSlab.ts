@@ -13,6 +13,7 @@ import { checkRc, fyd, rcConcrete, rcCurvature, rcUls } from "./rc";
 import type { RcConcrete, RcInput, RcResult } from "./rc";
 import { slabAs } from "./slab";
 import type { SlabBars } from "./slab";
+import { annex } from "../codes/annex";
 
 /** поперечна арматура продавлювання: діаметр, кількість стрижнів на одному периметрі, радіальний крок s_r, кількість периметрів, відстань першого від грані колони (0 — 0.5d), мм */
 export interface PunchRf { d: number; n: number; sr: number; rows: number; s0?: number; cls?: string }
@@ -384,13 +385,13 @@ export function punchCheck(p: PunchInput): PunchResult {
     betaFem = ex * g.edgeX!.s <= 0 && ey * g.edgeY!.s <= 0 ? u1 / u1r : b478(W.gx, W.gy);
   }
   betaFem = Math.max(1, betaFem);
-  const betaApprox = type === "int" ? 1.15 : type === "edge" ? 1.4 : 1.5;
+  const bA = p.code === "DBN" ? [1.15, 1.4, 1.5] : annex().e1992.beta, betaApprox = type === "int" ? bA[0] : type === "edge" ? bA[1] : bA[2];
   const beta = p.approx ? betaApprox : betaFem;
 
-  const gc = p.code === "DBN" ? 1.3 : 1.5, fck = conc.fck;
+  const na = annex().e1992, gc = p.code === "DBN" ? 1.3 : na.gc, fck = conc.fck, cR = p.code === "DBN" ? 0.18 : na.cRdc;
   const k = Math.min(2, 1 + Math.sqrt(200 / d)), rho = Math.min(0.02, p.rho);
-  const vmin = 0.035 * k ** 1.5 * Math.sqrt(fck);
-  const vRdc = Math.max((0.18 / gc) * k * (100 * rho * fck) ** (1 / 3), vmin);
+  const vmin = (p.code === "DBN" ? 0.035 : na.vminK) * k ** 1.5 * Math.sqrt(fck);
+  const vRdc = Math.max((cR / gc) * k * (100 * rho * fck) ** (1 / 3), vmin);
   const vRdMax = 0.5 * 0.6 * (1 - fck / 250) * conc.fcd;
   const vEd0 = (beta * p.V) / (u0 * d), vEd = (beta * p.V) / (u1 * d);
   const uOut = (beta * p.V) / (vRdc * d);
@@ -422,7 +423,7 @@ export function checkFlat(i: FlatInput): FlatResult {
   const code = i.code, conc = rcConcrete(code, i.concrete), checks: Check[] = [];
   const f = (v: number, n = 2) => (Number.isFinite(v) ? v.toFixed(n) : "—");
   const selfW = i.selfWeight === false ? 0 : (25 * i.h) / 1000;
-  const gG = i.gammaG ?? (code === "DBN" ? 1.1 : 1.35), gQ = i.gammaQ ?? (code === "DBN" ? 1.2 : 1.5), psi2 = i.psi2 ?? 0.3, phi = i.phi ?? 2;
+  const gG = i.gammaG ?? (code === "DBN" ? 1.1 : annex().e1990.gG), gQ = i.gammaQ ?? (code === "DBN" ? 1.2 : annex().e1990.gQ), psi2 = i.psi2 ?? 0.3, phi = i.phi ?? 2;
   const wd = gG * (i.g + selfW) + gQ * i.q, wqp = i.g + selfW + psi2 * i.q, kq = wqp / wd;
   const fem = flatFem(i, wd / 1000, conc.Ecm);
   const { xs, ys, nx, ny } = fem, nn = fem.m.length, id = (a: number, b: number) => b * (nx + 1) + a;
@@ -588,8 +589,8 @@ export function checkFlat(i: FlatInput): FlatResult {
       checks.push(mkCheck("punchCs", cl("4.8.5.1 (4.92)", "6.4.5 (1) (6.52)"), "v_Ed ≤ v_Rd,cs = 0.75·v_Rd,c + 1.5·(d/s_r)·A_sw·f_ywd,ef/(u_1·d)",
         `${desc(cs)}; ${rf.n}Ø${rf.d} на периметр, s_r = ${rf.sr} mm; v_Rd,c = ${f(cs.p.vRdc, 3)}; ${f(cs.p.vEd, 3)} ≤ ${f(cs.p.vRdcs!, 3)} MPa`, cs.p.vEd / cs.p.vRdcs!));
       const co = needRf.reduce((m, c) => (c.p.rOut - c.p.rLast! > m.p.rOut - m.p.rLast! ? c : m));
-      const req = co.p.rOut - 1.5 * co.p.d;
-      checks.push(mkCheck("punchOut", cl("4.8.5.4 (4.94), 8.4.3.1", "6.4.5 (4) (6.54), 9.4.3 (1)"), "останній ряд ≥ r_out − 1.5·d",
+      const kO = code === "DBN" ? 1.5 : annex().e1992.kOut, req = co.p.rOut - kO * co.p.d;
+      checks.push(mkCheck("punchOut", cl("4.8.5.4 (4.94), 8.4.3.1", "6.4.5 (4) (6.54), 9.4.3 (1)"), `останній ряд ≥ r_out − ${kO}·d`,
         `${co.label}: u_out = ${f(co.p.uOut, 0)} mm на ${f(co.p.rOut, 0)} mm від грані; останній ряд ${f(co.p.rLast!, 0)} ≥ ${f(req, 0)} mm`, req > 0 ? req / co.p.rLast! : 0));
       checks.push(mkCheck("punchSr", cl("8.4.3.1", "9.4.3 (1)"), "s_r ≤ 0.75·d", `${rf.sr} ≤ ${f(0.75 * dEff, 0)} mm`, rf.sr / (0.75 * dEff)));
       checks.push(mkCheck("punchRows", cl("8.4.3.1", "9.4.3 (1)"), "не менше двох периметрів", `${rf.rows} ≥ 2`, 2 / rf.rows));

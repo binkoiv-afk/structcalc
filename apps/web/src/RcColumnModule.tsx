@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { NumInput } from "./NumInput";
 import { BAR_DIAMETERS, checkRcColumn, CodeId, RC_REBARS, rcConcretes, RcColInput, RcColResult } from "@structcalc/core";
-import { CheckList, pct, T, utilState } from "./Results";
+import { CheckList, pct, T, utilState, enNorms } from "./Results";
 
 export interface RcColState {
   L: number; mux: number; muy: number; N: number; Mx1: number; Mx2: number; My1: number; My2: number;
@@ -235,7 +235,7 @@ export function RcColumnModule({ code, s, set, t }: { code: CodeId; s: RcColStat
                 <dl>
                   <div><dt>{t("rep_object")}</dt><dd>{s.obj || "—"}</dd></div>
                   <div><dt>{t("rep_element")}</dt><dd>{s.elem || t("mod_rccolumn")}</dd></div>
-                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-98:2009 зі Зміною № 1; ДСТУ Б В.2.6-156:2010" : "EN 1992-1-1"}</dd></div>
+                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-98:2009 зі Зміною № 1; ДСТУ Б В.2.6-156:2010" : enNorms("EN 1992-1-1")}</dd></div>
                   <div><dt>{t("rep_date")}</dt><dd>{new Date().toLocaleDateString()}</dd></div>
                 </dl>
               </header>

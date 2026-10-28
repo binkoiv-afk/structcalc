@@ -33,3 +33,4 @@ export * from "./rc/rc";
 export * from "./rc/column";
 export * from "./rc/slab";
 export * from "./rc/flatSlab";
+export * from "./codes/annex";

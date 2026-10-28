@@ -3,6 +3,7 @@
 
 import type { Section } from "../geometry/sections";
 import { steel } from "../catalog/materials";
+import { annex } from "./annex";
 import {
   Check, cm3, f, finalize, Intermediate, kN, kNm, maxThickness, mcrDoublySymmetric, MemberInput, MemberResult, mkCheck,
 } from "./types";
@@ -64,7 +65,7 @@ export function checkMemberEN(inp: MemberInput): MemberResult {
   if (!Number.isFinite(fy)) {
     return finalize([mkCheck("material", st.source, "f_y(t)", `t = ${f(maxThickness(s), 1)} mm`, NaN, ["steelNotSupplied"])], []);
   }
-  const gM0 = inp.gammaM0 ?? 1.0, gM1 = inp.gammaM1 ?? 1.0;
+  const gM0 = inp.gammaM0 ?? annex().e1993.gM0, gM1 = inp.gammaM1 ?? annex().e1993.gM1;
   const MEd = Math.abs(inp.MEd ?? 0), VEd = Math.abs(inp.VEd ?? 0), NEd = Math.max(0, inp.NEd ?? 0);
   const checks: Check[] = [];
   const values: Intermediate[] = [

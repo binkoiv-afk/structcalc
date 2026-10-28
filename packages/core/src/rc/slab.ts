@@ -12,6 +12,7 @@ import type { ShellElement } from "../analysis/shell";
 import { skyFactor, SkyMatrix, skySolve } from "../analysis/skyline";
 import { checkRc, rcConcrete, rcCurvature, rcUls } from "./rc";
 import type { RcInput, RcResult } from "./rc";
+import { annex } from "../codes/annex";
 
 export type SlabEdge = "free" | "pin" | "fix";
 /** армування на 1 м: діаметр і крок, мм (d = 0 — немає) */
@@ -118,7 +119,7 @@ export function checkSlab(i: SlabInput): SlabResult {
   const code = i.code, conc = rcConcrete(code, i.concrete), checks: Check[] = [], DS = "ДСТУ Б В.2.6-156:2010";
   const f = (v: number, n = 2) => (Number.isFinite(v) ? v.toFixed(n) : "—");
   const selfW = i.selfWeight === false ? 0 : (25 * i.h) / 1000;
-  const gG = i.gammaG ?? (code === "DBN" ? 1.1 : 1.35), gQ = i.gammaQ ?? (code === "DBN" ? 1.2 : 1.5), psi2 = i.psi2 ?? 0.3, phi = i.phi ?? 2;
+  const gG = i.gammaG ?? (code === "DBN" ? 1.1 : annex().e1990.gG), gQ = i.gammaQ ?? (code === "DBN" ? 1.2 : annex().e1990.gQ), psi2 = i.psi2 ?? 0.3, phi = i.phi ?? 2;
   const wd = gG * (i.g + selfW) + gQ * i.q, wqp = i.g + selfW + psi2 * i.q;
   const fem = slabFem(i, wd / 1000, conc.Ecm);
   const nn = fem.m.length;

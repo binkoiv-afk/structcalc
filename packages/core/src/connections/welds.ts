@@ -5,6 +5,7 @@
 import type { CodeId } from "../codes/types";
 import { Check, f, mkCheck } from "../codes/types";
 import type { ConnResult } from "./bolts";
+import { annex } from "../codes/annex";
 
 /** ДБН табл. Д.2: Rwf металу кутового шва за класом міцності основного металу */
 export const WELD_METAL_DBN: { maxClass: number; Rwun: number; Rwf: number }[] = [
@@ -150,7 +151,7 @@ export function checkFillet(i: FilletInput): ConnResult {
   // EN 1993-1-8, 4.5.3.3 — спрощений метод
   const CL = "EN 1993-1-8";
   const a = i.a ?? 0.7 * i.kf;
-  const gM2 = i.gammaM2 ?? 1.25;
+  const gM2 = i.gammaM2 ?? annex().e1993.gM2;
   const bw = betaW(i.Run);
   const fvwd = i.Run / Math.sqrt(3) / (bw * gM2);
   const p = weldGroupProps(i.segs, a); // 4.5.1(4): l_eff = l − 2a
@@ -226,7 +227,7 @@ export function checkButt(i: ButtInput): ConnResult {
     }
     return finish(checks, values);
   }
-  const gM0 = i.gammaM0 ?? 1.0;
+  const gM0 = i.gammaM0 ?? annex().e1993.gM0;
   const red = Math.sqrt(s * s + 3 * tau * tau);
   checks.push(mkCheck("buttEN", "EN 1993-1-8, 4.7.1; EN 1993-1-1, (6.1)", "√(σ² + 3τ²) / (f_y/γ_M0) ≤ 1",
     `√(${f(s, 1)}² + 3·${f(tau, 1)}²) = ${f(red, 1)} / ${f(i.Ry / gM0, 0)} MPa`, red / (i.Ry / gM0), ["buttFullPen"]));

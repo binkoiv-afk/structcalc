@@ -3,7 +3,7 @@ import { NumInput } from "./NumInput";
 import {
   CodeId, ColumnDesignInput, designColumn, END_CONDITIONS, familiesFor, familySections, findSection, selectColumn, STEELS,
 } from "@structcalc/core";
-import { CheckList, SectionProps, Summary } from "./Results";
+import { CheckList, SectionProps, Summary, enNorms } from "./Results";
 import { TriedList } from "./TriedList";
 import { FamilyOptions } from "./SectionModule";
 import { SectionDrawing } from "./SectionDrawing";
@@ -162,7 +162,7 @@ export function ColumnModule({ code, s, set, t }: { code: CodeId; s: ColumnState
                 <dl>
                   <div><dt>{t("rep_object")}</dt><dd>{s.obj || "—"}</dd></div>
                   <div><dt>{t("rep_element")}</dt><dd>{s.elem || "—"}</dd></div>
-                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-198:2014" : "EN 1993-1-1"}</dd></div>
+                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-198:2014" : enNorms("EN 1993-1-1")}</dd></div>
                   <div><dt>{t("rep_date")}</dt><dd>{new Date().toLocaleDateString()}</dd></div>
                 </dl>
               </header>

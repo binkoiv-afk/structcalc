@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { NumInput } from "./NumInput";
 import { BAR_DIAMETERS, checkSlab, CodeId, RC_REBARS, rcConcretes, slabAs, SlabBars, SlabEdge, SlabInput, SlabResult } from "@structcalc/core";
-import { CheckList, pct, T, utilState } from "./Results";
+import { CheckList, pct, T, utilState, enNorms } from "./Results";
 
 type EdgeKey = "x0" | "x1" | "y0" | "y1";
 type Layer = "botX" | "botY" | "topX" | "topY";
@@ -229,7 +229,7 @@ export function SlabModule({ code, s, set, t }: { code: CodeId; s: SlabState; se
                 <dl>
                   <div><dt>{t("rep_object")}</dt><dd>{s.obj || "—"}</dd></div>
                   <div><dt>{t("rep_element")}</dt><dd>{s.elem || t("mod_slab")}</dd></div>
-                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-98:2009 зі Зміною № 1; ДСТУ Б В.2.6-156:2010; ДБН В.1.2-2; ДСТУ Б В.1.2-3" : "EN 1992-1-1; EN 1990"}</dd></div>
+                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-98:2009 зі Зміною № 1; ДСТУ Б В.2.6-156:2010; ДБН В.1.2-2; ДСТУ Б В.1.2-3" : enNorms("EN 1992-1-1; EN 1990")}</dd></div>
                   <div><dt>{t("rep_date")}</dt><dd>{new Date().toLocaleDateString()}</dd></div>
                 </dl>
               </header>

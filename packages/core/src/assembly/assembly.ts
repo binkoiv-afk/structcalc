@@ -26,6 +26,7 @@ import { checkFillet, weldShape } from "../connections/welds";
 import type { WeldSeg } from "../connections/welds";
 import { checkBasePlate } from "../joints/basePlate";
 import type { BasePlateInput, NodeResult } from "../joints/basePlate";
+import { annex } from "../codes/annex";
 
 export type ConnectorKind = "weld" | "bolts" | "rivets" | "screws" | "none";
 
@@ -168,7 +169,7 @@ const SUPPORTS: Record<string, Partial<Record<Dof, boolean>>> = {
   roller: { uz: true },
 };
 
-export const GF_DEFAULT: Record<CodeId, Record<LoadCategory, number>> = { DBN: { G: 1.1, L: 1.2, Q: 1.4, A: 1 }, EN: { G: 1.35, L: 1.5, Q: 1.5, A: 1 } };
+export const GF_DEFAULT: Record<CodeId, Record<LoadCategory, number>> = { DBN: { G: 1.1, L: 1.2, Q: 1.4, A: 1 }, get EN() { const e = annex().e1990; return { G: e.gG, L: e.gQ, Q: e.gQ, A: 1 }; } };
 
 function sectionOf(m: AsmMember): Section {
   const s = findSection(m.family, m.size);

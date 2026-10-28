@@ -7,7 +7,7 @@ import {
   chsSection, iSection, NodeCombo, NodeProfile, NodeResult, rhsSection, Section, STEELS, WELD_PROCESSES, WeldProcess,
   buildCombinations, Exposure, LAYER_MATERIALS, layerMat, LoadCategory, Metal, StackLayer,
 } from "@structcalc/core";
-import { CheckList, pct, T, utilState } from "./Results";
+import { CheckList, pct, T, utilState, enNorms } from "./Results";
 import { FamilyOptions } from "./SectionModule";
 import { isJointKind, jointInit, JointModule, JointReturn, JointState } from "./JointModule";
 import { freeInit, FreeJointModule, FreeState } from "./FreeJointModule";
@@ -787,7 +787,7 @@ export function NodeModule({ code, s, set, t, onReturn, onReturnBase }: { code: 
                 <dl>
                   <div><dt>{t("rep_object")}</dt><dd>{s.obj || "—"}</dd></div>
                   <div><dt>{t("rep_element")}</dt><dd>{s.elem || "—"}</dd></div>
-                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-198:2014; EN 1992-4; EN 1993-1-8, 6.2.5–6.2.6" : "EN 1993-1-8; EN 1992-4; EN 1992-1-1"}</dd></div>
+                  <div><dt>{t("rep_code")}</dt><dd>{code === "DBN" ? "ДБН В.2.6-198:2014; EN 1992-4; EN 1993-1-8, 6.2.5–6.2.6" : enNorms("EN 1993-1-8; EN 1992-4; EN 1992-1-1")}</dd></div>
                   <div><dt>{t("rep_date")}</dt><dd>{new Date().toLocaleDateString()}</dd></div>
                 </dl>
               </header>
