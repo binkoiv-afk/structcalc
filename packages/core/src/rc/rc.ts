@@ -73,6 +73,8 @@ export interface RcInput {
   code: CodeId; concrete: string; rebar: string;
   /** переріз: ширина ребра b, висота h; полиця зверху bf×hf (0 — прямокутник), мм */
   b: number; h: number; bf?: number; hf?: number;
+  /** для v_min за національним додатком (плита — смуга плити) */
+  member?: "beam" | "slab";
   /** захисний шар до хомута, мм; хомути: діаметр, кількість гілок, крок, клас */
   c: number; sw: { d: number; legs: number; s: number; cls: string };
   /** ряди нижньої (перший — крайній) і верхньої арматури */
@@ -271,20 +273,24 @@ export function checkRc(i: RcInput): RcResult {
   if (NEd > 0) checks.push(mkCheck("rcN", clM, "N_Ed ≤ N_Rd (κ = 0, ε ≤ ε_c1)", `${f(NEd, 1)} / ${f(pos.NRd, 1)} kN; без впливу прогину (6.1.3) — для гнучких колон окремо`, NEd / pos.NRd));
 
   // 2. Похилі перерізи: V_Rd,c (6.2.a,b), V_Rd,s (6.8), V_Rd,max (6.9); ДБН — 6.2.1.6–6.2.1.8 і ДСТУ Б В.2.6-156 (ті ж формули)
-  const na = annex().e1992, gc = code === "DBN" ? 1.3 : na.gc, fckS = conc.fck, cR = code === "DBN" ? 0.18 : na.cRdc, vK = code === "DBN" ? 0.035 : na.vminK, k1s = code === "DBN" ? 0.15 : na.k1;
+  // EN — формули національного додатка (v_min, C_Rd,c, k1, cot θ, ν1, ρ_w,min); ДБН — ДСТУ Б В.2.6-156
+  const na = annex().e1992, fckS = conc.fck;
   const kk = Math.min(2, 1 + Math.sqrt(200 / d)), rhoL = Math.min(0.02, As / (i.b * d));
   const sigCp = Math.min(0.2 * conc.fcd, Math.max(0, (NEd * 1000) / Ac));
-  const VRdc = Math.max((cR / gc) * kk * (100 * rhoL * fckS) ** (1 / 3), vK * kk ** 1.5 * Math.sqrt(fckS)) * i.b * d / 1000 + (k1s * sigCp * i.b * d) / 1000;
+  const vArgs = { k: kk, rho: rhoL, fck: fckS, d, sigCp, member: i.member ?? "beam" } as const;
+  const vRdcS = code === "DBN" ? Math.max((0.18 / 1.3) * kk * (100 * rhoL * fckS) ** (1 / 3), 0.035 * kk ** 1.5 * Math.sqrt(fckS)) + 0.15 * sigCp : na.vRdc(vArgs);
+  const VRdc = (vRdcS * i.b * d) / 1000;
   // α_cw — вплив стиску на V_Rd,max (ДСТУ Б В.2.6-156, 4.6.3.3; EN 6.2.3 (3)); ν1 = ν, бо σ_sw = f_ywd > 0.8·f_yk
   const sc = Math.max(0, (NEd * 1000) / Ac), aCw = sc <= 0 ? 1 : sc <= 0.25 * conc.fcd ? 1 + sc / conc.fcd : sc <= 0.5 * conc.fcd ? 1.25 : Math.max(0, 2.5 * (1 - sc / conc.fcd));
-  const Asw = i.sw.legs * barA(i.sw.d), z = 0.9 * d, nu1 = 0.6 * (1 - fckS / 250) * aCw;
-  let bestV = 0, cot = 2.5, VRds = 0, VRdmax = 0;
-  for (let c = 1; c <= 2.5001; c += 0.01) {
+  const Asw = i.sw.legs * barA(i.sw.d), z = 0.9 * d, nu1 = (code === "DBN" ? 0.6 * (1 - fckS / 250) : na.nu1(fckS)) * aCw;
+  const cotMax = code === "DBN" ? 2.5 : na.cotMax({ fck: fckS, fcd: conc.fcd, sigCd: sigCp, VEd: VEd * 1000, bw: i.b, z });
+  let bestV = 0, cot = cotMax, VRds = 0, VRdmax = 0;
+  for (let c = 1; c <= cotMax + 1e-4; c += 0.01) {
     const vs = i.sw.s > 0 ? ((Asw / i.sw.s) * z * fywd * c) / 1000 : 0, vm = (i.b * z * nu1 * conc.fcd) / (c + 1 / c) / 1000, v = Math.min(vs, vm);
     if (v > bestV) { bestV = v; cot = c; VRds = vs; VRdmax = vm; }
   }
-  if (!bestV) { VRds = 0; VRdmax = (i.b * z * nu1 * conc.fcd) / (2.5 + 0.4) / 1000; }
-  const rhoW = i.sw.s > 0 ? Asw / (i.sw.s * i.b) : 0, rhoWmin = (0.08 * Math.sqrt(fckS)) / fywk, sMax = 0.75 * d;
+  if (!bestV) { VRds = 0; VRdmax = (i.b * z * nu1 * conc.fcd) / (cotMax + 1 / cotMax) / 1000; }
+  const rhoW = i.sw.s > 0 ? Asw / (i.sw.s * i.b) : 0, rhoWmin = code === "DBN" ? (0.08 * Math.sqrt(fckS)) / fywk : na.rhoWmin(fckS, conc.fctm, fywk), sMax = 0.75 * d;
   const DS = "ДСТУ Б В.2.6-156:2010";
   const clV = code === "DBN" ? `${DS}, 4.6.2.1 (4.36), (4.37); 4.6.3.3 (4.44), (4.45)` : "EN 1992-1-1, 6.2.2 (6.2), 6.2.3 (6.8), (6.9)";
   const aCwTxt = aCw !== 1 ? `; α_cw = ${f(aCw, 3)}` : "";
@@ -297,7 +303,7 @@ export function checkRc(i: RcInput): RcResult {
     checks.push(mkCheck("rcV0", code === "DBN" ? (noSw ? `${DS}, 4.6.2.7, 4.6.1.4` : `${DS}, 4.6.1.4, 4.6.3.3 (4.45)`) : (noSw ? "EN 1992-1-1, 6.2.2 (6)" : "EN 1992-1-1, 6.2.1 (8), 6.2.3 (6.9)"),
       noSw ? "V_Ed,0 ≤ 0.5·b·d·ν·f_cd" : "V_Ed,0 ≤ V_Rd,max", `${f(V0, 1)} / ${f(cap, 1)} kN`, V0 / Math.max(cap, 1e-9)));
   }
-  checks.push(mkCheck("rcRhoW", code === "DBN" ? `${DS}, 8.2.6.5 (8.4), (8.5)` : "EN 1992-1-1, 9.2.2 (9.5N)", "ρ_w = A_sw/(s·b) ≥ 0.08·√f_ck / f_yk",
+  checks.push(mkCheck("rcRhoW", code === "DBN" ? `${DS}, 8.2.6.5 (8.4), (8.5)` : "EN 1992-1-1, 9.2.2 (9.5N)", code === "EN" && annex().id === "DE" ? "ρ_w = A_sw/(s·b) ≥ 0.16·f_ctm / f_yk" : "ρ_w = A_sw/(s·b) ≥ 0.08·√f_ck / f_yk",
     `${f(rhoW * 1000, 3)}‰ ≥ ${f(rhoWmin * 1000, 3)}‰`, rhoW > 0 ? rhoWmin / rhoW : Infinity));
   checks.push(mkCheck("rcSw", code === "DBN" ? `${DS}, 8.2.6.6 (8.6)` : "EN 1992-1-1, 9.2.2 (9.6N)", "s ≤ s_l,max = 0.75·d", `${f(i.sw.s, 0)} ≤ ${f(sMax, 0)} mm`, i.sw.s / sMax));
   if (i.sw.legs >= 2) {

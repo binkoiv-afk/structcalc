@@ -51,6 +51,8 @@ export interface FlatField {
 export type PunchType = "int" | "edge" | "corner";
 export interface PunchResult {
   type: PunchType; d: number; u0: number; u1: number; u1r: number;
+  /** перевірка біля колони: на u0 (EN 6.53) або v_Ed(u1) ≤ 1.4·v_Rd,c (DIN EN NA) */
+  maxMode: "u0" | "u1x1.4";
   /** ексцентриситети V відносно центра колони, мм */
   ex: number; ey: number;
   beta: number; betaFem: number; betaApprox: number; approx: boolean;
@@ -388,12 +390,15 @@ export function punchCheck(p: PunchInput): PunchResult {
   const bA = p.code === "DBN" ? [1.15, 1.4, 1.5] : annex().e1992.beta, betaApprox = type === "int" ? bA[0] : type === "edge" ? bA[1] : bA[2];
   const beta = p.approx ? betaApprox : betaFem;
 
-  const na = annex().e1992, gc = p.code === "DBN" ? 1.3 : na.gc, fck = conc.fck, cR = p.code === "DBN" ? 0.18 : na.cRdc;
+  // v_Rd,c (4.86) / EN (6.47) — за національним додатком; DE: v_Ed(u1) ≤ 1.4·v_Rd,c замість (6.53)
+  const na = annex().e1992, fck = conc.fck;
   const k = Math.min(2, 1 + Math.sqrt(200 / d)), rho = Math.min(0.02, p.rho);
-  const vmin = (p.code === "DBN" ? 0.035 : na.vminK) * k ** 1.5 * Math.sqrt(fck);
-  const vRdc = Math.max((cR / gc) * k * (100 * rho * fck) ** (1 / 3), vmin);
-  const vRdMax = 0.5 * 0.6 * (1 - fck / 250) * conc.fcd;
-  const vEd0 = (beta * p.V) / (u0 * d), vEd = (beta * p.V) / (u1 * d);
+  const vRdc = p.code === "DBN" ? Math.max((0.18 / 1.3) * k * (100 * rho * fck) ** (1 / 3), 0.035 * k ** 1.5 * Math.sqrt(fck))
+    : na.vRdc({ k, rho, fck, d, sigCp: 0, member: "punch", u0d: type === "int" ? u0 / d : undefined });
+  const maxMode = p.code === "DBN" ? "u0" : na.punchMax;
+  const vEd = (beta * p.V) / (u1 * d);
+  const vRdMax = maxMode === "u0" ? 0.5 * 0.6 * (1 - fck / 250) * conc.fcd : 1.4 * vRdc;
+  const vEd0 = maxMode === "u0" ? (beta * p.V) / (u0 * d) : vEd;
   const uOut = (beta * p.V) / (vRdc * d);
   // відстань від грані колони до контуру u_out: обернене до довжини контуру L(r)
   const Lr = (r: number) => punchPerimeter(g, r).L;
@@ -401,7 +406,7 @@ export function punchCheck(p: PunchInput): PunchResult {
   if (Lr(lo) >= uOut) hi = 0;
   else { for (let it = 0; it < 60; it++) { const mid = (lo + hi) / 2; if (Lr(mid) < uOut) lo = mid; else hi = mid; } }
   const rOut = hi;
-  const res: PunchResult = { type, d, u0, u1, u1r, ex, ey, beta, betaFem, betaApprox, approx: p.approx, vEd0, vRdMax, vEd, vRdc, uOut, rOut, util: 0 };
+  const res: PunchResult = { type, maxMode, d, u0, u1, u1r, ex, ey, beta, betaFem, betaApprox, approx: p.approx, vEd0, vRdMax, vEd, vRdc, uOut, rOut, util: 0 };
   const fywdEf = (dd: number) => Math.min(250 + 0.25 * d, fyd(p.code, p.rf?.cls ?? p.rebar, dd));
   if (vEd > vRdc) {
     const sr = 0.75 * d;
@@ -496,7 +501,7 @@ export function checkFlat(i: FlatInput): FlatResult {
     const [bot, top, bo, to] = dir === "x" ? [i.botX, i.topX, 0, 0] : [i.botY, i.topY, i.botX.d, i.topX.d];
     const c = i.c + Math.max(bo, to);
     return {
-      code, concrete: i.concrete, rebar: i.rebar, b: 1000, h: i.h, c, sw: { d: 0, legs: 0, s: 0, cls: i.rebar },
+      code, concrete: i.concrete, rebar: i.rebar, b: 1000, h: i.h, member: "slab", c, sw: { d: 0, legs: 0, s: 0, cls: i.rebar },
       bot: lay(bot, dir === "x" ? As.bx : As.by), top: lay(top, dir === "x" ? As.tx : As.ty), mode: "section",
       M: neg ? -Mt : Mb, N: 0, V: 0, Mqp: neg ? -Mt * kq : Mb * kq, phi, wlim: i.wlim ?? 0.3,
     };
@@ -512,10 +517,10 @@ export function checkFlat(i: FlatInput): FlatResult {
   if (M.ty > 0) take(rc.yNeg, negKeys, "Y");
 
   // конструювання: крок (8.3.1.3), не менше двох нижніх стрижнів через колону в кожному напрямку (8.4.1.3)
-  const sMain = Math.min(3 * i.h, 400), clS = code === "DBN" ? `${DS}, 8.3.1.3` : "EN 1992-1-1, 9.3.1.1 (3)";
+  const sMain = code === "DBN" ? Math.min(3 * i.h, 400) : annex().e1992.slabS(i.h).main, clS = code === "DBN" ? `${DS}, 8.3.1.3` : "EN 1992-1-1, 9.3.1.1 (3)";
   for (const [nm, b] of [["botX", i.botX], ["botY", i.botY], ["topX", i.topX], ["topY", i.topY]] as const) {
     if (!(b.d > 0 && b.s > 0)) continue;
-    checks.push(mkCheck("slSmain", clS, "s ≤ min(3h; 400) mm", `${nm}: Ø${b.d}/${b.s}; ${b.s} ≤ ${f(sMain, 0)} mm`, b.s / sMain));
+    checks.push(mkCheck("slSmain", clS, `s ≤ ${f(sMain, 0)} mm`, `${nm}: Ø${b.d}/${b.s}; ${b.s} ≤ ${f(sMain, 0)} mm`, b.s / sMain));
   }
   const cMinX = i.colShape === "circle" ? i.cx : i.cy, cMinY = i.cx;
   for (const [nm, b, cw] of [["botX", i.botX, cMinX], ["botY", i.botY, cMinY]] as const) {
@@ -574,8 +579,10 @@ export function checkFlat(i: FlatInput): FlatResult {
   const cl = (dbn: string, en: string) => (code === "DBN" ? `${DS}, ${dbn}` : `EN 1992-1-1, ${en}`);
   if (cols.length) {
     const c0 = gov((c) => c.p.vEd0 / c.p.vRdMax);
-    checks.push(mkCheck("punchMax", cl("4.8.5.3 (4.93)", "6.4.5 (3) (6.53)"), "v_Ed,0 = β·V_Ed/(u_0·d) ≤ v_Rd,max = 0.5·ν·f_cd",
+    if (c0.p.maxMode === "u0") checks.push(mkCheck("punchMax", cl("4.8.5.3 (4.93)", "6.4.5 (3) (6.53)"), "v_Ed,0 = β·V_Ed/(u_0·d) ≤ v_Rd,max = 0.5·ν·f_cd",
       `${desc(c0)}; u_0 = ${f(c0.p.u0, 0)} mm; ${f(c0.p.vEd0, 3)} ≤ ${f(c0.p.vRdMax, 3)} MPa`, c0.p.vEd0 / c0.p.vRdMax));
+    else checks.push(mkCheck("punchMax", `${annex().prefix} 1992-1-1/NA, 6.4.5 (3)`, "v_Ed = β·V_Ed/(u_1·d) ≤ v_Rd,max = 1.4·v_Rd,c",
+      `${desc(c0)}; u_1 = ${f(c0.p.u1, 0)} mm; ${f(c0.p.vEd0, 3)} ≤ ${f(c0.p.vRdMax, 3)} MPa`, c0.p.vEd0 / c0.p.vRdMax));
     const rf = i.punch && i.punch.d > 0 && i.punch.n > 0 && i.punch.sr > 0 && i.punch.rows > 0 ? i.punch : undefined;
     const needRf = cols.filter((c) => c.p.vEd > c.p.vRdc);
     if (!rf || !needRf.length) {

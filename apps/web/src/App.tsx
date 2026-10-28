@@ -226,6 +226,9 @@ export function App() {
         </div>
       </header>
 
+      {s.code === "EN" && ANNEXES[s.annex ?? "EU"].notes.length > 0 && s.screen !== "home" && (
+        <div className="norm-note" role="note">{ANNEXES[s.annex ?? "EU"].notes.map((n, k) => <p key={k}>{n[s.lang === "ru" ? 1 : s.lang === "uk" ? 0 : 2]}</p>)}</div>
+      )}
       <div key={s.code === "DBN" ? "DBN" : s.annex ?? "EU"} className="norm-scope">
       {s.screen === "home" && <Home go={go} goAsm={goAsm} t={t} saved={saved} open={openCalc}
         remove={(id) => putSaved(saved.filter((x) => x.id !== id))}

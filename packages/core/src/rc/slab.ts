@@ -151,7 +151,7 @@ export function checkSlab(i: SlabInput): SlabResult {
     // другий ряд лежить на першому: захисний шар збільшуємо на діаметр першого ряду (низ і верх однаково, у запас — більший)
     const c = i.c + Math.max(bo, to);
     return {
-      code, concrete: i.concrete, rebar: i.rebar, b: 1000, h: i.h, c, sw: { d: 0, legs: 0, s: 0, cls: i.rebar },
+      code, concrete: i.concrete, rebar: i.rebar, b: 1000, h: i.h, member: "slab", c, sw: { d: 0, legs: 0, s: 0, cls: i.rebar },
       bot: lay(bot, dir === "x" ? As.bx : As.by), top: lay(top, dir === "x" ? As.tx : As.ty), mode: "section",
       M: neg ? -Mt : Mb, N: 0, V: dir === "x" ? V.x : V.y, Mqp: neg ? -Mt * kq : Mb * kq, phi, wlim: i.wlim ?? 0.3,
     };
@@ -170,13 +170,13 @@ export function checkSlab(i: SlabInput): SlabResult {
 
   // конструювання плит: крок (8.3.1.3), допоміжна арматура ≥ 20 % (8.3.1.2), часткове защемлення шарнірних граней (8.3.1.6)
   const mainDir: "x" | "y" = kind === "two" ? (mX >= mY ? "x" : "y") : kind;
-  const sMain = Math.min(3 * i.h, 400), sSec = code === "DBN" ? Math.min(3 * i.h, 450) : Math.min(3.5 * i.h, 450);
+  const sMain = code === "DBN" ? Math.min(3 * i.h, 400) : annex().e1992.slabS(i.h).main, sSec = code === "DBN" ? Math.min(3 * i.h, 450) : annex().e1992.slabS(i.h).sec;
   const clS = code === "DBN" ? `${DS}, 8.3.1.3` : "EN 1992-1-1, 9.3.1.1 (3)";
   for (const [nm, b, main] of [["botX", i.botX, mainDir === "x"], ["botY", i.botY, mainDir === "y"], ["topX", i.topX, true], ["topY", i.topY, true]] as const) {
     if (!(b.d > 0 && b.s > 0)) continue;
     if (nm.startsWith("top") && (nm === "topX" ? M.tx : M.ty) <= 0) continue;
     const lim = main ? sMain : sSec;
-    checks.push(mkCheck(main ? "slSmain" : "slSsec", clS, main ? "s ≤ min(3h; 400) mm" : code === "DBN" ? "s ≤ min(3h; 450) mm" : "s ≤ min(3.5h; 450) mm",
+    checks.push(mkCheck(main ? "slSmain" : "slSsec", clS, `s ≤ s_max = ${f(lim, 0)} mm`,
       `${nm}: Ø${b.d}/${b.s}; ${b.s} ≤ ${f(lim, 0)} mm`, b.s / lim));
   }
   if (kind !== "two") {
