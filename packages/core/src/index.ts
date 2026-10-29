@@ -35,3 +35,5 @@ export * from "./rc/column";
 export * from "./rc/slab";
 export * from "./rc/flatSlab";
 export * from "./codes/annex";
+export * from "./facade/curtainWall";
+export * from "./facade/profiles";

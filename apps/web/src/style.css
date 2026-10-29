@@ -695,3 +695,15 @@ input.bad { border-color: var(--fail); }
 output.calc { display: block; padding: 6px 8px; border: 1px dashed var(--line, #ccc); border-radius: 6px; font-family: var(--mono); font-size: 13px; color: var(--ink); }
 .lc-src { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 2px 0 4px; }
 .hint.warn { color: var(--warn); }
+/* Фасади: схема стояка */
+.cw-elev { width: 100%; max-width: 460px; height: auto; display: block; }
+.cw-glass { fill: color-mix(in srgb, var(--accent, #2b6cb0) 10%, transparent); stroke: var(--line, #ccc); }
+.cw-transom { stroke: var(--muted); stroke-width: 3; }
+.cw-mull { stroke: var(--ink); stroke-width: 3; }
+.cw-mfill { fill: color-mix(in srgb, var(--accent, #2b6cb0) 16%, transparent); stroke: none; }
+.cw-mline { fill: none; stroke: var(--accent, #2b6cb0); stroke-width: 1.5; }
+.cw-brk { fill: var(--ink); }
+.cw-hinge { fill: var(--bg, #fff); stroke: var(--ink); stroke-width: 2; }
+.cw-lbl { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+.cw-tab tr.sel td { background: var(--warn-soft); }
+.cw-tab tr.bad td { color: var(--fail, #c53030); }

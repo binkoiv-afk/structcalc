@@ -1,3 +1,4 @@
+import { FacadeModule, FacadeState, initialFacade } from "./FacadeModule";
 import { useEffect, useRef, useState } from "react";
 import { downloadFile, loadSaved, newId, parseFile, SavedCalc, storeSaved } from "./projects";
 import { FileMenu } from "./FileMenu";
@@ -22,19 +23,19 @@ import { FlatSlabModule, FlatState, initialFlat } from "./FlatSlabModule";
 
 interface AppState {
   lang: Lang; code: CodeId; annex?: AnnexId; screen: Screen;
-  beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState; conn: ConnState; gen: GenState; lib: LibState; node: NodeState; asm: AsmState; thermal: ThermalState; rc: RcState; rcc: RcColState; slab: SlabState; flat: FlatState;
+  beam: BeamState; column: ColumnState; lc: CollectorState; sec: SectionState; conn: ConnState; gen: GenState; lib: LibState; node: NodeState; asm: AsmState; thermal: ThermalState; rc: RcState; rcc: RcColState; slab: SlabState; flat: FlatState; fac: FacadeState;
   /** відкритий збережений розрахунок (id у «Моїх розрахунках») для кожного екрана */
   cur?: Partial<Record<Screen, string>>;
 }
 
 /** Частини стану, що належать екрану: їх зберігають, відкривають, скидають і відкочують (Ctrl+Z) */
-type Slot = "beam" | "column" | "lc" | "sec" | "conn" | "gen" | "lib" | "node" | "asm" | "thermal" | "rc" | "rcc" | "slab" | "flat";
-const SLOTS: Record<Screen, Slot[]> = { home: [], beam: ["beam", "lc"], column: ["column"], section: ["sec"], connection: ["conn"], generator: ["gen"], library: ["lib"], node: ["node"], assembly: ["asm"], thermal: ["thermal"], concrete: ["rc"], rccolumn: ["rcc"], slab: ["slab"], flat: ["flat"] };
+type Slot = "beam" | "column" | "lc" | "sec" | "conn" | "gen" | "lib" | "node" | "asm" | "thermal" | "rc" | "rcc" | "slab" | "flat" | "fac";
+const SLOTS: Record<Screen, Slot[]> = { home: [], beam: ["beam", "lc"], column: ["column"], section: ["sec"], connection: ["conn"], generator: ["gen"], library: ["lib"], node: ["node"], assembly: ["asm"], thermal: ["thermal"], concrete: ["rc"], rccolumn: ["rcc"], slab: ["slab"], flat: ["flat"], facade: ["fac"] };
 const SCREENS = Object.keys(SLOTS) as Screen[];
 const screenOfHash = () => { const h = location.hash.replace(/^#\/?/, ""); return (SCREENS as string[]).includes(h) ? (h as Screen) : null; };
 
 const KEY = "structcalc.v2";
-const initial: AppState = { lang: "uk", code: "DBN", screen: "home", beam: initialBeam, column: initialColumn, lc: initialCollector, sec: initialSection, conn: initialConn, gen: initialGen, lib: initialLib, node: initialNode, asm: initialAsm, thermal: initialThermal, rc: initialRc, rcc: initialRcCol, slab: initialSlab, flat: initialFlat };
+const initial: AppState = { lang: "uk", code: "DBN", screen: "home", beam: initialBeam, column: initialColumn, lc: initialCollector, sec: initialSection, conn: initialConn, gen: initialGen, lib: initialLib, node: initialNode, asm: initialAsm, thermal: initialThermal, rc: initialRc, rcc: initialRcCol, slab: initialSlab, flat: initialFlat, fac: initialFacade };
 
 function loadState(): AppState {
   const st = loadStored(), h = screenOfHash();
@@ -48,7 +49,7 @@ function loadStored(): AppState {
       const o = JSON.parse(raw);
       return {
         ...initial, ...o, screen: o.screen === "loads" ? "home" : o.screen, beam: { ...initialBeam, ...o.beam }, column: { ...initialColumn, ...o.column },
-        lc: { ...initialCollector, ...o.lc }, sec: { ...initialSection, ...o.sec }, conn: { ...initialConn, ...o.conn }, gen: { ...initialGen, ...o.gen }, lib: { ...initialLib, ...o.lib }, node: { ...initialNode, ...o.node }, asm: { ...initialAsm, ...o.asm }, thermal: { ...initialThermal, ...o.thermal }, rc: { ...initialRc, ...o.rc }, rcc: { ...initialRcCol, ...o.rcc }, slab: { ...initialSlab, ...o.slab, edges: { ...initialSlab.edges, ...o.slab?.edges } }, flat: { ...initialFlat, ...o.flat },
+        lc: { ...initialCollector, ...o.lc }, sec: { ...initialSection, ...o.sec }, conn: { ...initialConn, ...o.conn }, gen: { ...initialGen, ...o.gen }, lib: { ...initialLib, ...o.lib }, node: { ...initialNode, ...o.node }, asm: { ...initialAsm, ...o.asm }, thermal: { ...initialThermal, ...o.thermal }, rc: { ...initialRc, ...o.rc }, rcc: { ...initialRcCol, ...o.rcc }, slab: { ...initialSlab, ...o.slab, edges: { ...initialSlab.edges, ...o.slab?.edges } }, flat: { ...initialFlat, ...o.flat }, fac: { ...initialFacade, ...o.fac },
       };
     }
     const old = localStorage.getItem("structcalc.beam"); // версия 0.1
@@ -250,6 +251,7 @@ export function App() {
       {s.screen === "generator" && <GeneratorModule code={s.code} s={s.gen} set={(p) => set({ gen: { ...s.gen, ...p } })} lib={s.lib} setLib={(p) => set({ lib: { ...s.lib, ...p } })} t={t} />}
       {s.screen === "assembly" && <AssemblyModule code={s.code} s={s.asm} set={(p) => set({ asm: { ...s.asm, ...p } })} t={t} openNode={(p) => { set({ screen: "node", node: { ...s.node, ...p } }); window.scrollTo(0, 0); }} />}
       {s.screen === "thermal" && <ThermalModule code={s.code} s={s.thermal} set={(p) => set({ thermal: { ...s.thermal, ...p } })} t={t} />}
+      {s.screen === "facade" && <FacadeModule code={s.code} s={s.fac} set={(p) => set({ fac: { ...s.fac, ...p } })} t={t} />}
       {s.screen === "flat" && <FlatSlabModule code={s.code} s={s.flat} set={(p) => set({ flat: { ...s.flat, ...p } })} t={t} />}
       {s.screen === "slab" && <SlabModule code={s.code} s={s.slab} set={(p) => set({ slab: { ...s.slab, ...p } })} t={t} />}
       {s.screen === "rccolumn" && <RcColumnModule code={s.code} s={s.rcc} set={(p) => set({ rcc: { ...s.rcc, ...p } })} t={t} />}
