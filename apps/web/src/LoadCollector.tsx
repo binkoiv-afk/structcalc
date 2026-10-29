@@ -133,6 +133,7 @@ export function LoadCollector({ code, c, set, onAdd, t }: {
   const snowNote = `${t("lc_snow")} (EN 1991-1-3, 5.3.2)${place}: ${skSrc}; μ1 = ${f2(sn.mu)} (α = ${c.alpha}°); Ce = ${f2(sn.Ce)}; Ct = ${f2(sn.Ct)}; s = ${kPa(sn.s)} kPa; b = ${f2(b)} m → q = ${f2(qs)} kN/m; ψ0 = ${psiS}`;
   const windNote = `${t("lc_wind")} (EN 1991-1-4, 4.5)${place}: ${vbSrc}; ${t("lc_terrain").toLowerCase()} ${terrain}; z = ${c.z} m; `
     + (wn.f ? `qp = ${wn.f} = ${kPa(wn.qp)} kPa` : `cr = ${f2(wn.cr)}; Iv = ${f2(wn.Iv)}; qp = ${kPa(wn.qp)} kPa`) + ` (ce = ${f2(wn.ce)}); cpe = ${f2(c.cpe)}; we = ${kPa(wn.w)} kPa; b = ${f2(b)} m → q = ${f2(qw)} kN/m; ψ0 = ${psiW}`;
+  const cityRow = cl?.cities.find((r) => r.name === c.cityEN);
   const pickCity = (key: string) => {
     const row = cl?.cities.find((r) => `${r.name}|${r.region}` === key);
     set(row ? { cityEN: row.name, snowZone: row.snow, windZone: row.wind, alt: row.alt } : { cityEN: "" });
@@ -146,7 +147,7 @@ export function LoadCollector({ code, c, set, onAdd, t }: {
           <label className="wide"><span className="lbl">{t("lc_cityEN")}</span>
             <select id="lc_cityEN" value={cl.cities.find((r) => r.name === c.cityEN) ? `${c.cityEN}|${cl.cities.find((r) => r.name === c.cityEN)!.region}` : ""} onChange={(e) => pickCity(e.target.value)}>
               <option value="">{t("lc_custom")}</option>
-              {cl.cities.map((r) => <option key={r.name + r.region} value={`${r.name}|${r.region}`}>{r.name}{r.region ? ` · ${r.region}` : ""}</option>)}
+              {cl.cities.map((r) => <option key={r.name + r.region} value={`${r.name}|${r.region}`}>{r.name}{r.region ? ` · ${r.region}` : ""}{r.sSt === "l" || r.wSt === "l" ? " ≈" : ""}</option>)}
             </select>
           </label>
         )}
@@ -181,7 +182,7 @@ export function LoadCollector({ code, c, set, onAdd, t }: {
             <label><span className="lbl">{t("lc_zoneW")}</span>
               <select id="lc_zoneW" value={wz?.id ?? ""} onChange={(e) => set({ windZone: e.target.value, cityEN: "" })}>
                 <option value="">{t("lc_zManual")}</option>
-                {cl.windZones.map((z) => <option key={z.id} value={z.id}>{z.id} — {z.vb0(0)} m/s</option>)}
+                {cl.windZones.map((z) => <option key={z.id} value={z.id}>{z.id}{cl.id === "RO" ? " kPa" : ""} — {+z.vb0(0).toFixed(1)} m/s</option>)}
               </select>
             </label>
           )}
@@ -201,6 +202,8 @@ export function LoadCollector({ code, c, set, onAdd, t }: {
         <div className="lc-out"><span>q<sub>p</sub> = <b>{kPa(wn.qp)}</b> kPa</span><span>c<sub>e</sub> = <b>{f2(wn.ce)}</b></span><span>w = <b>{kPa(wn.w)}</b> kPa</span><span>q = <b>{f2(qw)}</b> kN/m</span><span>ψ0 = <b>{psiW}</b></span></div>
         <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qw.toFixed(3), label: t("lc_wind"), group: t("lc_wind"), psi0: psiW, note: windNote })}>{t("lc_addWind")}</button>
         <p className="hint">{cl ? t("lc_hintNA") : t("lc_hintEN")}</p>
+        {cityRow && (cityRow.sSt === "l" || cityRow.wSt === "l") && <p className="hint warn">≈ {t("lc_likely")}</p>}
+        {cl?.notes.map((n, k) => <p key={k} className="hint">{n[li]}</p>)}
       </div>
     </fieldset>
   );

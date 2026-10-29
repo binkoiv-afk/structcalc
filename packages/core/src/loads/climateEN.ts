@@ -5,6 +5,8 @@
 
 import type { AnnexId } from "../codes/annex";
 import { TERRAIN_EN, type TerrainEN } from "./en1991";
+import { CITIES_DE, CITIES_PL } from "./citiesDEPL";
+import { CITIES_FR, CITIES_RO } from "./citiesFRRO";
 
 type Tr = [string, string, string];
 
@@ -22,7 +24,11 @@ export interface WindZone {
   f: string;
 }
 export interface Terrain { id: string; z0: number; zmin: number; name: Tr }
-export interface ClimateCity { name: string; region: string; snow: string; wind: string; alt: number }
+export interface ClimateCity {
+  name: string; region: string; snow: string; wind: string; alt: number;
+  /** достовірність зони: v — офіційний перелік, s — копія офіційної таблиці, l — імовірно */
+  sSt?: "v" | "s" | "l"; wSt?: "v" | "s" | "l";
+}
 
 export interface ClimateEN {
   id: AnnexId;
@@ -86,8 +92,11 @@ const DE: ClimateEN = {
     if (A > 800) { qp *= 0.2 + A / 1000; f += ` · (0.2 + ${A}/1000)`; }
     return { qp, f };
   },
-  psiSnow: psiRec, psiWind: 0.6, cities: [],
-  notes: [],
+  psiSnow: psiRec, psiWind: 0.6, cities: CITIES_DE,
+  notes: [
+    ["Північнонімецька низовина (зони 1, 2): додатково особлива ситуація 2.3·s_k (NA.4.3) — тут не враховано.", "Северогерманская низменность (зоны 1, 2): дополнительно особая ситуация 2.3·s_k (NA.4.3) — здесь не учтена.", "North German lowland (zones 1, 2): additional accidental case 2.3·s_k (NA.4.3) not included here."],
+    ["Вище 1100 м (вітер) і 1500 м (сніг) — окремий розгляд за NA.", "Выше 1100 м (ветер) и 1500 м (снег) — отдельное рассмотрение по NA.", "Above 1100 m (wind) and 1500 m (snow) — special consideration per NA."],
+  ],
 };
 
 // ── Франція: NF EN 1991-1-3/NA:2007, NF EN 1991-1-4/NA:2008 ──
@@ -107,11 +116,17 @@ const FR: ClimateEN = {
     { id: "IIIb", z0: 0.5, zmin: 9, name: ["селища, промзони, ліс", "посёлки, промзоны, лес", "villages, industrial zones, forest"] },
     { id: "IV", z0: 1.0, zmin: 15, name: TERR_EN[4].name },
   ],
-  psiSnow: psiRec, psiWind: 0.6, cities: [],
-  notes: [],
+  psiSnow: psiRec, psiWind: 0.6, cities: CITIES_FR,
+  notes: [
+    ["Зони — за префектурою департаменту; у 24 департаментах (сніг) і 23 (вітер) зона залежить від кантону — перевіряйте за комуною.", "Зоны — по префектуре департамента; в 24 департаментах (снег) и 23 (ветер) зона зависит от кантона — проверяйте по коммуне.", "Zones by the département préfecture; in 24 (snow) and 23 (wind) départements the zone depends on the canton — check by commune."],
+    ["Особливе снігове навантаження s_Ad (A2, B1 1.00; B2, C2 1.35; D 1.80 кН/м²) — окреме особливе сполучення, тут не враховано.", "Особая снеговая нагрузка s_Ad (A2, B1 1.00; B2, C2 1.35; D 1.80 кН/м²) — отдельное особое сочетание, здесь не учтена.", "Accidental snow s_Ad (A2, B1 1.00; B2, C2 1.35; D 1.80 kN/m²) is a separate accidental combination, not included here."],
+  ],
 };
 
 // ── Польща: PN-EN 1991-1-3/NA, PN-EN 1991-1-4/NA ──
+const PL_CE: Record<string, [number, number, number, number]> = {
+  "0": [3.0, 0.11, 1, 200], I: [2.8, 0.19, 1, 200], II: [2.3, 0.24, 2, 300], III: [1.9, 0.26, 5, 400], IV: [1.5, 0.29, 10, 500],
+};
 const PL: ClimateEN = {
   id: "PL", snowRef: "PN-EN 1991-1-3/NA, tabl. NB.1", windRef: "PN-EN 1991-1-4/NA, tabl. NA.1",
   snowZones: [
@@ -127,11 +142,43 @@ const PL: ClimateEN = {
     { id: "3", vb0: (A) => (A <= 300 ? 22 : 22 * (1 + 0.0006 * (A - 300))), f: "22·(1 + 0.0006(A − 300)), A > 300" },
   ],
   terrains: TERR_EN,
-  psiSnow: psiRec, psiWind: 0.6, cities: [],
-  notes: [],
+  // табл. NA.3: q_p = c_e(z)·q_b, z_min ≤ z ≤ z_max
+  qp: ({ vb, z, terrain }) => {
+    const t = PL_CE[terrain]; if (!t) return undefined;
+    const ze = Math.min(Math.max(z, t[2]), t[3]), qb = 0.625 * vb * vb, ce = t[0] * (ze / 10) ** t[1];
+    return { qp: ce * qb, f: `c_e·q_b = ${t[0]}·(z/10)^${t[1]}·q_b` };
+  },
+  psiSnow: psiRec, psiWind: 0.6, cities: CITIES_PL,
+  notes: [
+    ["Офіційного переліку зон за містами немає (лише карти NB.1, NA.1): зону ділянки перевіряйте за картою.", "Официального перечня зон по городам нет (только карты NB.1, NA.1): зону площадки проверяйте по карте.", "No official town list (maps NB.1, NA.1 only): check the site zone on the map."],
+    ["У смузі 10 км по обидва боки межі вітрових зон 1/2 можна брати середнє.", "В полосе 10 км по обе стороны границы ветровых зон 1/2 можно брать среднее.", "Within 10 km of the wind zone 1/2 border the mean of both zones may be used."],
+  ],
 };
 
-export const CLIMATES_EN: Partial<Record<AnnexId, ClimateEN>> = { DE, FR, PL };
+// ── Румунія: CR 1-1-3/2012 (сніг), CR 1-1-4/2012 (вітер) ──
+// s0,k — за картою/табл. A.1, до 1000 м; 1000–1500 м — (3.1), (3.2); вище — значення на 1500 м.
+const roS = (s0: number) => (A: number) => {
+  const a = Math.min(Math.max(A, 1000), 1500) - 1000;
+  return s0 >= 2.5 ? s0 : s0 >= 2 ? Math.max(s0, 2.0 + 0.00691 * a) : s0 + 0.00752 * a;
+};
+const RO: ClimateEN = {
+  id: "RO", snowRef: "CR 1-1-3/2012, 3.1, tab. A.1", windRef: "CR 1-1-4/2012, 2.3",
+  snowZones: [
+    { id: "1.5", sk: roS(1.5), f: "1.5 (A ≤ 1000 m); 1.5 + 0.00752·(A − 1000) (3.2)" },
+    { id: "2.0", sk: roS(2.0), f: "2.0 (A ≤ 1000 m); 2.0 + 0.00691·(A − 1000) (3.1)" },
+    { id: "2.5", sk: roS(2.5), f: "2.5" },
+  ],
+  // зони задано тиском q_b, кПа; v_b = √(q_b/0.625)
+  windZones: [0.4, 0.5, 0.6, 0.7].map((q) => ({ id: q.toFixed(1), vb0: () => Math.sqrt((q * 1000) / 0.625), f: `√(${q * 1000}/0.625)` })),
+  terrains: TERR_EN,
+  psiSnow: () => 0.7, psiWind: 0.7, cities: CITIES_RO,
+  notes: [
+    ["Сніг на покрівлі за CR 1-1-3: s = γIs·μ·Ce·Ct·s0,k; γIs = 1.0 для класу III–IV (1.10 — II, 1.15 — I) — множте вручну; Ce: 0.8 повна, 1.0 нормальна, 1.2 обмежена експозиція.", "Снег на покрытии по CR 1-1-3: s = γIs·μ·Ce·Ct·s0,k; γIs = 1.0 для класса III–IV (1.10 — II, 1.15 — I) — умножайте вручную; Ce: 0.8 полная, 1.0 нормальная, 1.2 ограниченная экспозиция.", "Roof snow per CR 1-1-3: s = γIs·μ·Ce·Ct·s0,k; γIs = 1.0 for class III–IV (1.10 II, 1.15 I) — apply manually; Ce 0.8 full, 1.0 normal, 1.2 limited exposure."],
+    ["Вітрові зони q_b відомі не для всіх міст (таблицю A CR 1-1-4 не прочитано) — тоді зону вибирайте за картою. Пікова q_p — за формулами EN (g = 3.5).", "Ветровые зоны q_b известны не для всех городов (таблица A CR 1-1-4 не прочитана) — тогда зону выбирайте по карте. Пиковое q_p — по формулам EN (g = 3.5).", "Wind q_b zones are not known for every city (CR 1-1-4 Annex A not read) — pick the zone from the map then. Peak q_p uses the EN formulas (g = 3.5)."],
+  ],
+};
+
+export const CLIMATES_EN: Partial<Record<AnnexId, ClimateEN>> = { DE, FR, PL, RO };
 
 export function climateEN(id: AnnexId | undefined): ClimateEN | undefined {
   return id ? CLIMATES_EN[id] : undefined;

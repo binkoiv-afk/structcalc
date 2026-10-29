@@ -25,7 +25,21 @@ describe("сніг і вітер за національними додатка�
     const pl = climateEN("PL")!;
     expect(skZone(pl, "5", 900)).toBeCloseTo(3.11, 2);
     expect(skZone(pl, "1", 100)).toBe(0.7);
+    expect(vb0Zone(pl, "3", 800)).toBeCloseTo(28.6, 2); // приклад ПВр
+    expect(windNational(pl, { vb: 22, z: 10, terrain: "II", cpe: 1 }).qp).toBeCloseTo(2.3 * 302.5, 1);
+    expect(windNational(pl, { vb: 22, z: 1, terrain: "IV", cpe: 1 }).qp).toBeCloseTo(1.5 * 302.5, 1); // z_min
+    expect(pl.cities.find((c) => c.name === "Warszawa")?.snow).toBe("2");
     const a = windNational(undefined, { vb: 25, z: 10, terrain: "II", cpe: 0.8 });
     expect(a.w).toBeCloseTo(windEN({ vb: 25, z: 10, terrain: "II", cpe: 0.8 }).w, 6);
+  });
+  it("Румунія: s0,k вище 1000 м, q_b → v_b; Франція: Париж A1/2", () => {
+    const ro = climateEN("RO")!;
+    expect(skZone(ro, "2.0", 500)).toBe(2.0);
+    expect(skZone(ro, "2.0", 1200)).toBeCloseTo(2.0 + 0.00691 * 200, 2);
+    expect(skZone(ro, "1.5", 2000)).toBeCloseTo(1.5 + 0.00752 * 500, 2);
+    expect(0.625 * vb0Zone(ro, "0.5", 0) ** 2).toBeCloseTo(500, -1);
+    expect(ro.cities.find((c) => c.name === "București")?.snow).toBe("2.0");
+    const fr = climateEN("FR")!;
+    expect(fr.cities.find((c) => c.name === "Paris")).toMatchObject({ snow: "A1", wind: "2" });
   });
 });

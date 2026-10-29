@@ -1,6 +1,7 @@
 // Вибір норм і країни: тексти
 type Dict = Record<string, string>;
 const uk: Dict = {
+  lc_likely: "Зона цього міста взята не з офіційного переліку — перевірте за картою національного додатка.",
   lc_li: "0",
   lc_cityEN: "Місто (зони за національним додатком)",
   lc_zoneS: "Снігова зона",
@@ -12,6 +13,7 @@ const uk: Dict = {
   norm_dbn: "Україна — ДБН",
 };
 const ru: Dict = {
+  lc_likely: "Зона этого города взята не из официального перечня — проверьте по карте национального приложения.",
   lc_li: "1",
   lc_cityEN: "Город (зоны по национальному приложению)",
   lc_zoneS: "Снеговая зона",
@@ -23,6 +25,7 @@ const ru: Dict = {
   norm_dbn: "Украина — ДБН",
 };
 const en: Dict = {
+  lc_likely: "This city's zone is not from an official list — check it on the National Annex map.",
   lc_li: "2",
   lc_cityEN: "City (zones from the National Annex)",
   lc_zoneS: "Snow zone",

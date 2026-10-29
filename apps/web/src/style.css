@@ -694,3 +694,4 @@ input.bad { border-color: var(--fail); }
 @media print { .norm-note { display: none; } }
 output.calc { display: block; padding: 6px 8px; border: 1px dashed var(--line, #ccc); border-radius: 6px; font-family: var(--mono); font-size: 13px; color: var(--ink); }
 .lc-src { font-family: var(--mono); font-size: 12px; color: var(--muted); margin: 2px 0 4px; }
+.hint.warn { color: var(--warn); }
