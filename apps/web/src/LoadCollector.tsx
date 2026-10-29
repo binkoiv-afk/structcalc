@@ -1,18 +1,20 @@
 import { NumInput } from "./NumInput";
 import {
-  CAER_PRESETS, CITIES_UA, CodeId, snowDBN, snowEN, TEF_PRESETS, TerrainDBN, TerrainEN, UserLoad, windDBN, windEN,
+  annex, CAER_PRESETS, CITIES_UA, climateEN, CodeId, skZone, snowDBN, snowEN, TEF_PRESETS, TerrainDBN, UserLoad, vb0Zone, windDBN, windNational,
 } from "@structcalc/core";
 
 // Сбор снеговой и ветровой нагрузки → погонная нагрузка на балку (через ширину грузовой площади).
 export interface CollectorState {
   city: string; S0: number; W0: number; alpha: number; uneven: boolean; Ce: number; H: number;
   T: number; eta: number; width: number; z: number; terrain: TerrainDBN; flexible: boolean; caer: number;
-  sk: number; Ct: number; vb: number; terrainEN: TerrainEN; cpe: number;
+  sk: number; Ct: number; vb: number; terrainEN: string; cpe: number;
+  cityEN: string; snowZone: string; windZone: string; alt: number; cdir: number;
 }
 
 export const initialCollector: CollectorState = {
   city: "Київ", S0: 1550, W0: 370, alpha: 10, uneven: false, Ce: 1, H: 0, T: 100, eta: 0.02, width: 3,
   z: 10, terrain: "III", flexible: false, caer: 0.8, sk: 1000, Ct: 1, vb: 25, terrainEN: "II", cpe: 0.8,
+  cityEN: "", snowZone: "", windZone: "", alt: 100, cdir: 1,
 };
 
 const num = (v: string) => (v.trim() === "" ? 0 : Number(v.replace(",", ".")));
@@ -113,43 +115,92 @@ export function LoadCollector({ code, c, set, onAdd, t }: {
     );
   }
 
-  const sn = snowEN({ sk: c.sk, alpha: c.alpha, Ce: c.Ce, Ct: c.Ct });
-  const wn = windEN({ vb: c.vb, z: c.z, terrain: c.terrainEN, cpe: c.cpe });
+  // EN: країна — з активного національного додатка; зони й місто заповнюють s_k і v_b
+  const cl = climateEN(annex().id), li = Number(t("lc_li")) || 0;
+  const sz = cl?.snowZones.find((z) => z.id === c.snowZone), wz = cl?.windZones.find((z) => z.id === c.windZone);
+  const terrains = cl?.terrains ?? null;
+  const terrain = terrains && !terrains.some((x) => x.id === c.terrainEN) ? terrains.find((x) => x.id === "II")?.id ?? terrains[0].id : c.terrainEN;
+  const sk = sz ? skZone(cl!, sz.id, c.alt) * 1000 : c.sk;
+  const vb0 = wz ? vb0Zone(cl!, wz.id, c.alt) : NaN;
+  const vb = wz ? +(vb0 * c.cdir).toFixed(2) : c.vb;
+  const sn = snowEN({ sk, alpha: c.alpha, Ce: c.Ce, Ct: c.Ct });
+  const wn = windNational(cl, { vb, z: c.z, terrain, cpe: c.cpe, A: c.alt });
   const qs = (sn.s * b) / 1000, qw = (wn.w * b) / 1000;
-  const snowNote = `${t("lc_snow")} (EN 1991-1-3, 5.3.2): sk = ${c.sk} Pa; μ1 = ${f2(sn.mu)} (α = ${c.alpha}°); Ce = ${f2(sn.Ce)}; Ct = ${f2(sn.Ct)}; s = ${kPa(sn.s)} kPa; b = ${f2(b)} m → q = ${f2(qs)} kN/m`;
-  const windNote = `${t("lc_wind")} (EN 1991-1-4, 4.5): vb = ${c.vb} m/s; ${t("lc_terrain").toLowerCase()} ${c.terrainEN}; z = ${c.z} m; cr = ${f2(wn.cr)}; Iv = ${f2(wn.Iv)}; qp = ${kPa(wn.qp)} kPa (ce = ${f2(wn.ce)}); cpe = ${f2(c.cpe)}; we = ${kPa(wn.w)} kPa; b = ${f2(b)} m → q = ${f2(qw)} kN/m`;
+  const psiS = cl ? cl.psiSnow(c.alt) : 0.5, psiW = cl ? cl.psiWind : 0.6;
+  const place = c.cityEN ? ` (${c.cityEN})` : "";
+  const skSrc = sz ? `${cl!.snowRef}, ${t("lc_zoneS").toLowerCase()} ${sz.id}, A = ${c.alt} m: sk = ${sz.f} = ${f2(sk / 1000)} kN/m²` : `sk = ${sk} Pa`;
+  const vbSrc = wz ? `${cl!.windRef}, ${t("lc_zoneW").toLowerCase()} ${wz.id}: vb,0 = ${f2(vb0)} m/s; vb = ${f2(c.cdir)}·vb,0 = ${f2(vb)} m/s` : `vb = ${vb} m/s`;
+  const snowNote = `${t("lc_snow")} (EN 1991-1-3, 5.3.2)${place}: ${skSrc}; μ1 = ${f2(sn.mu)} (α = ${c.alpha}°); Ce = ${f2(sn.Ce)}; Ct = ${f2(sn.Ct)}; s = ${kPa(sn.s)} kPa; b = ${f2(b)} m → q = ${f2(qs)} kN/m; ψ0 = ${psiS}`;
+  const windNote = `${t("lc_wind")} (EN 1991-1-4, 4.5)${place}: ${vbSrc}; ${t("lc_terrain").toLowerCase()} ${terrain}; z = ${c.z} m; `
+    + (wn.f ? `qp = ${wn.f} = ${kPa(wn.qp)} kPa` : `cr = ${f2(wn.cr)}; Iv = ${f2(wn.Iv)}; qp = ${kPa(wn.qp)} kPa`) + ` (ce = ${f2(wn.ce)}); cpe = ${f2(c.cpe)}; we = ${kPa(wn.w)} kPa; b = ${f2(b)} m → q = ${f2(qw)} kN/m; ψ0 = ${psiW}`;
+  const pickCity = (key: string) => {
+    const row = cl?.cities.find((r) => `${r.name}|${r.region}` === key);
+    set(row ? { cityEN: row.name, snowZone: row.snow, windZone: row.wind, alt: row.alt } : { cityEN: "" });
+  };
+  const terrList = terrains ?? (["0", "I", "II", "III", "IV"] as const).map((id) => ({ id, name: null as null | string[] }));
   return (
     <fieldset>
-      <legend>{t("lc_title")} · EN 1991</legend>
+      <legend>{t("lc_title")} · {cl ? `${annex().prefix} 1991` : "EN 1991"}</legend>
       <div className="grid2">
-        <label className="wide"><span className="lbl">{t("lc_width")}</span>{N("width", "0.1")}</label>
+        {cl && cl.cities.length > 0 && (
+          <label className="wide"><span className="lbl">{t("lc_cityEN")}</span>
+            <select id="lc_cityEN" value={cl.cities.find((r) => r.name === c.cityEN) ? `${c.cityEN}|${cl.cities.find((r) => r.name === c.cityEN)!.region}` : ""} onChange={(e) => pickCity(e.target.value)}>
+              <option value="">{t("lc_custom")}</option>
+              {cl.cities.map((r) => <option key={r.name + r.region} value={`${r.name}|${r.region}`}>{r.name}{r.region ? ` · ${r.region}` : ""}</option>)}
+            </select>
+          </label>
+        )}
+        {cl && <label><span className="lbl">{t("lc_alt")}</span>{N("alt", "10")}</label>}
+        <label className={cl ? "" : "wide"}><span className="lbl">{t("lc_width")}</span>{N("width", "0.1")}</label>
       </div>
       <div className="lc-block">
-        <div className="lc-head">{t("lc_snow")} · EN 1991-1-3</div>
+        <div className="lc-head">{t("lc_snow")} · {cl ? cl.snowRef : "EN 1991-1-3"}</div>
         <div className="grid2">
-          <label><span className="lbl">s<sub>k</sub>, Pa</span>{N("sk", "50")}</label>
+          {cl && (
+            <label><span className="lbl">{t("lc_zoneS")}</span>
+              <select id="lc_zoneS" value={sz?.id ?? ""} onChange={(e) => set({ snowZone: e.target.value, cityEN: "" })}>
+                <option value="">{t("lc_zManual")}</option>
+                {cl.snowZones.map((z) => <option key={z.id} value={z.id}>{z.id}</option>)}
+              </select>
+            </label>
+          )}
+          {sz ? <label><span className="lbl">s<sub>k</sub>, Pa</span><output id="lc_sk" className="calc">{sk.toFixed(0)}</output></label>
+            : <label><span className="lbl">s<sub>k</sub>, Pa</span>{N("sk", "50")}</label>}
           <label><span className="lbl">{t("lc_alpha")}</span>{N("alpha", "1")}</label>
           <label><span className="lbl">Ce</span>{N("Ce", "0.1")}</label>
           <label><span className="lbl">Ct</span>{N("Ct", "0.1")}</label>
         </div>
-        <div className="lc-out"><span>μ1 = <b>{f2(sn.mu)}</b></span><span>s = <b>{kPa(sn.s)}</b> kPa</span><span>q = <b>{f2(qs)}</b> kN/m</span></div>
-        <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qs.toFixed(3), label: t("lc_snow"), group: t("lc_snow"), psi0: 0.5, note: snowNote })}>{t("lc_addSnow")}</button>
+        {sz && <div className="lc-src">s<sub>k</sub> = {sz.f} = <b>{f2(sk / 1000)}</b> kN/m²</div>}
+        <div className="lc-out"><span>μ1 = <b>{f2(sn.mu)}</b></span><span>s = <b>{kPa(sn.s)}</b> kPa</span><span>q = <b>{f2(qs)}</b> kN/m</span><span>ψ0 = <b>{psiS}</b></span></div>
+        <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qs.toFixed(3), label: t("lc_snow"), group: t("lc_snow"), psi0: psiS, note: snowNote })}>{t("lc_addSnow")}</button>
       </div>
       <div className="lc-block">
-        <div className="lc-head">{t("lc_wind")} · EN 1991-1-4</div>
+        <div className="lc-head">{t("lc_wind")} · {cl ? cl.windRef : "EN 1991-1-4"}</div>
         <div className="grid2">
-          <label><span className="lbl">v<sub>b</sub>, m/s</span>{N("vb", "1")}</label>
+          {cl && (
+            <label><span className="lbl">{t("lc_zoneW")}</span>
+              <select id="lc_zoneW" value={wz?.id ?? ""} onChange={(e) => set({ windZone: e.target.value, cityEN: "" })}>
+                <option value="">{t("lc_zManual")}</option>
+                {cl.windZones.map((z) => <option key={z.id} value={z.id}>{z.id} — {z.vb0(0)} m/s</option>)}
+              </select>
+            </label>
+          )}
+          {wz ? <>
+            <label><span className="lbl">{t("lc_cdir")}</span>{N("cdir", "0.05")}</label>
+            <label><span className="lbl">v<sub>b</sub>, m/s</span><output id="lc_vb" className="calc">{f2(vb)}</output></label>
+          </> : <label><span className="lbl">v<sub>b</sub>, m/s</span>{N("vb", "1")}</label>}
           <label><span className="lbl">z, m</span>{N("z", "1")}</label>
-          <label><span className="lbl">{t("lc_terrain")}</span>
-            <select id="lc_terrainEN" value={c.terrainEN} onChange={(e) => set({ terrainEN: e.target.value as TerrainEN })}>
-              {(["0", "I", "II", "III", "IV"] as const).map((x) => <option key={x} value={x}>{x}</option>)}
+          <label className={terrains ? "wide" : ""}><span className="lbl">{t("lc_terrain")}</span>
+            <select id="lc_terrainEN" value={terrain} onChange={(e) => set({ terrainEN: e.target.value })}>
+              {terrList.map((x) => <option key={x.id} value={x.id}>{x.id.startsWith("DE-") ? "" : `${x.id}${x.name ? " — " : ""}`}{x.name ? x.name[li] : ""}</option>)}
             </select>
           </label>
           <label><span className="lbl">c<sub>pe</sub></span>{N("cpe", "0.05")}</label>
         </div>
-        <div className="lc-out"><span>q<sub>p</sub> = <b>{kPa(wn.qp)}</b> kPa</span><span>c<sub>e</sub> = <b>{f2(wn.ce)}</b></span><span>w = <b>{kPa(wn.w)}</b> kPa</span><span>q = <b>{f2(qw)}</b> kN/m</span></div>
-        <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qw.toFixed(3), label: t("lc_wind"), group: t("lc_wind"), psi0: 0.6, note: windNote })}>{t("lc_addWind")}</button>
-        <p className="hint">{t("lc_hintEN")}</p>
+        {wn.f && <div className="lc-src">q<sub>p</sub> = {wn.f}</div>}
+        <div className="lc-out"><span>q<sub>p</sub> = <b>{kPa(wn.qp)}</b> kPa</span><span>c<sub>e</sub> = <b>{f2(wn.ce)}</b></span><span>w = <b>{kPa(wn.w)}</b> kPa</span><span>q = <b>{f2(qw)}</b> kN/m</span><span>ψ0 = <b>{psiW}</b></span></div>
+        <button className="ghost" onClick={() => onAdd({ type: "udl", cat: "Q", q: +qw.toFixed(3), label: t("lc_wind"), group: t("lc_wind"), psi0: psiW, note: windNote })}>{t("lc_addWind")}</button>
+        <p className="hint">{cl ? t("lc_hintNA") : t("lc_hintEN")}</p>
       </div>
     </fieldset>
   );

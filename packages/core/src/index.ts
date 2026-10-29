@@ -9,6 +9,7 @@ export * from "./codes/dbn198";
 export * from "./design/beamDesign";
 export * from "./loads/dbn122";
 export * from "./loads/en1991";
+export * from "./loads/climateEN";
 export * from "./loads/citiesUA";
 export * from "./codes/dbn198ecc";
 export * from "./design/columnDesign";
