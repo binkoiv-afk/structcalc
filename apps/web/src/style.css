@@ -707,3 +707,25 @@ output.calc { display: block; padding: 6px 8px; border: 1px dashed var(--line, #
 .cw-lbl { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
 .cw-tab tr.sel td { background: var(--warn-soft); }
 .cw-tab tr.bad td { color: var(--fail, #c53030); }
+/* НВФ: кронштейн */
+.br-svg { width: 100%; max-width: 720px; height: auto; display: block; }
+.br-plate { fill: color-mix(in srgb, var(--accent) 9%, var(--panel)); stroke: var(--ink); stroke-width: 1.4; }
+.br-edge { fill: var(--muted); stroke: none; }
+.br-hole { fill: var(--panel); stroke: var(--muted); stroke-width: 1.2; }
+.br-hole.on { stroke: var(--accent); stroke-width: 1.8; fill: var(--accent-soft); }
+.br-wall { stroke: var(--muted); stroke-width: 3; stroke-dasharray: 2 3; }
+.br-dim line { stroke: var(--muted); stroke-width: 0.8; }
+.br-dim text, .br-cap { font-family: var(--mono); font-size: 11px; fill: var(--muted); }
+.br-arrowhead { fill: none; stroke: var(--muted); stroke-width: 1; }
+.br-force { stroke: var(--warn); stroke-width: 2.2; }
+.br-force-h { fill: var(--warn); }
+.br-flbl { font-family: var(--mono); font-size: 12px; font-weight: 700; fill: var(--warn); }
+.br-planline { fill: none; stroke: var(--ink); stroke-linecap: square; }
+.br-types { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.br-type { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font-size: 12px; min-width: 78px; }
+.br-type.on { border-color: var(--accent); background: var(--accent-soft); }
+.br-type.soon { opacity: 0.55; }
+.br-type span { font-size: 10px; color: var(--muted); }
+.br-type svg { width: 36px; height: 24px; fill: none; stroke: currentColor; }
+.pair { display: flex; gap: 6px; }
+.pair > * { min-width: 0; flex: 1; }

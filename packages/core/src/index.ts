@@ -37,3 +37,4 @@ export * from "./rc/flatSlab";
 export * from "./codes/annex";
 export * from "./facade/curtainWall";
 export * from "./facade/profiles";
+export * from "./facade/nvfBracket";
